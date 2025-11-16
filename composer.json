@@ -1,0 +1,49 @@
+{
+    "name": "masum/laravel-tagging",
+    "description": "A flexible Laravel package for automatic tag generation and management for any model",
+    "keywords": ["laravel", "tagging", "tags", "auto-generate", "polymorphic"],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Masum",
+            "email": "masum@example.com"
+        }
+    ],
+    "homepage": "https://github.com/masum/laravel-tagging",
+    "support": {
+        "issues": "https://github.com/masum/laravel-tagging/issues",
+        "source": "https://github.com/masum/laravel-tagging"
+    },
+    "require": {
+        "php": "^8.1|^8.2|^8.3",
+        "illuminate/support": "^10.0|^11.0|^12.0",
+        "illuminate/database": "^10.0|^11.0|^12.0",
+        "illuminate/http": "^10.0|^11.0|^12.0",
+        "illuminate/routing": "^10.0|^11.0|^12.0",
+        "picqer/php-barcode-generator": "^3.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0",
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Masum\\Tagging\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Masum\\Tagging\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Masum\\Tagging\\TaggingServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
