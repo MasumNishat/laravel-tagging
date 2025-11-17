@@ -1,19 +1,35 @@
 {
     "name": "masum/laravel-tagging",
-    "description": "A flexible Laravel package for automatic tag generation and management for any model",
-    "keywords": ["laravel", "tagging", "tags", "auto-generate", "polymorphic"],
+    "description": "A comprehensive Laravel package for automatic tag generation and management with barcode support, events, bulk operations, and performance optimizations",
+    "keywords": [
+        "laravel",
+        "tagging",
+        "tags",
+        "auto-generate",
+        "polymorphic",
+        "barcode",
+        "label-printing",
+        "qr-code",
+        "sequential-tags",
+        "inventory",
+        "asset-management",
+        "events",
+        "caching"
+    ],
     "type": "library",
     "license": "MIT",
     "authors": [
         {
-            "name": "Masum",
-            "email": "masum@example.com"
+            "name": "Masum Nishat",
+            "email": "masum@example.com",
+            "role": "Developer"
         }
     ],
-    "homepage": "https://github.com/masum/laravel-tagging",
+    "homepage": "https://github.com/MasumNishat/laravel-tagging",
     "support": {
-        "issues": "https://github.com/masum/laravel-tagging/issues",
-        "source": "https://github.com/masum/laravel-tagging"
+        "issues": "https://github.com/MasumNishat/laravel-tagging/issues",
+        "source": "https://github.com/MasumNishat/laravel-tagging",
+        "docs": "https://github.com/MasumNishat/laravel-tagging#readme"
     },
     "require": {
         "php": "^8.1|^8.2|^8.3",
