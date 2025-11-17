@@ -10,11 +10,16 @@ A flexible Laravel package for automatic tag generation and management for any E
 - Configurable tag prefixes and separators
 - **Barcode generation** - Generate barcodes in multiple formats (CODE_128, QR Code, etc.)
 - **Print labels** - Print-ready barcode labels for physical tagging
+- **Events system** - Hook into tag operations for custom logic, webhooks, audit trails
+- **Bulk operations** - Regenerate or delete multiple tags at once
+- **Custom exceptions** - Specific exception classes for better error handling
+- **Performance optimizations** - Caching, race condition protection, N+1 query prevention
+- **Security hardening** - Input sanitization, secure error messages, SQL injection prevention
 - Automatic tag cleanup on model deletion
 - Easy-to-use trait-based implementation
 - RESTful API for tag and configuration management
 - Customizable table names
-- Support for Laravel 10.x and 11.x
+- Support for Laravel 10.x, 11.x, and 12.x
 
 ## Installation
 
@@ -347,6 +352,116 @@ The response maps fully-qualified model class names to their display names (from
 - Filtering models that are eligible for tagging
 
 **Note:** Only models that have BOTH the `Tagable` trait AND the `TAGABLE` constant will be returned by this endpoint.
+
+### Bulk Operations API
+
+The package provides efficient bulk operations for managing multiple tags at once.
+
+#### Bulk Regenerate Tags
+```http
+POST /api/tags/bulk/regenerate
+Content-Type: application/json
+
+{
+  "tag_ids": [1, 2, 3, 4, 5]
+}
+```
+
+Regenerates tags for multiple items at once. Useful when:
+- Changing tag format or prefix
+- Fixing incorrect tags
+- Resequencing tags
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Bulk regeneration completed",
+  "data": {
+    "regenerated": [
+      {
+        "id": 1,
+        "old_value": "EQ-001",
+        "new_value": "EQ-006"
+      },
+      {
+        "id": 2,
+        "old_value": "EQ-002",
+        "new_value": "EQ-007"
+      }
+    ],
+    "failed": [
+      {
+        "id": 5,
+        "error": "Configuration not found"
+      }
+    ]
+  }
+}
+```
+
+**Features:**
+- Database transaction for consistency
+- Individual error handling (some can succeed while others fail)
+- Detailed success/failure reporting
+- Automatic logging
+
+#### Bulk Delete Tags
+```http
+POST /api/tags/bulk/delete
+Content-Type: application/json
+
+{
+  "tag_ids": [1, 2, 3]
+}
+```
+
+Deletes multiple tags at once.
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Successfully deleted 3 tags",
+  "data": {
+    "deleted_count": 3
+  }
+}
+```
+
+**Frontend Example:**
+```javascript
+// Regenerate selected tags
+async function regenerateSelectedTags(tagIds) {
+  const response = await fetch('/api/tags/bulk/regenerate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag_ids: tagIds })
+  });
+
+  const result = await response.json();
+
+  console.log(`Regenerated: ${result.data.regenerated.length}`);
+  console.log(`Failed: ${result.data.failed.length}`);
+
+  // Handle failures
+  result.data.failed.forEach(failure => {
+    console.error(`Tag ${failure.id}: ${failure.error}`);
+  });
+}
+
+// Delete selected tags
+async function deleteSelectedTags(tagIds) {
+  const response = await fetch('/api/tags/bulk/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag_ids: tagIds })
+  });
+
+  const result = await response.json();
+  console.log(result.message);
+}
+```
 
 ### API Configuration
 
@@ -682,6 +797,385 @@ TagConfig::create([
     'prefix' => 'PT',
     'number_format' => 'random',
 ]);
+```
+
+## Events & Extensibility
+
+The package dispatches events for all tag operations, allowing you to hook into the tagging lifecycle for custom logic, webhooks, audit trails, notifications, and more.
+
+### Available Events
+
+All events are in the `Masum\Tagging\Events` namespace:
+
+#### TagCreated
+Dispatched when a new tag is generated for a model.
+
+**Properties:**
+- `$tag` - The Tag model instance
+- `$taggable` - The model that was tagged
+- `$config` - The TagConfig used (optional)
+
+**Example:**
+```php
+use Masum\Tagging\Events\TagCreated;
+
+// In your EventServiceProvider
+Event::listen(TagCreated::class, function ($event) {
+    // Send webhook
+    Http::post('https://api.example.com/webhooks/tag-created', [
+        'tag' => $event->tag->value,
+        'model' => get_class($event->taggable),
+        'id' => $event->taggable->id,
+    ]);
+
+    // Log to audit trail
+    AuditLog::create([
+        'action' => 'tag_created',
+        'tag_value' => $event->tag->value,
+        'user_id' => auth()->id(),
+    ]);
+
+    // Send notification
+    Mail::to('admin@example.com')->send(new TagCreatedMail($event->tag));
+});
+```
+
+#### TagUpdated
+Dispatched when a tag value is changed.
+
+**Properties:**
+- `$tag` - The updated Tag model instance
+- `$taggable` - The model whose tag was updated
+- `$oldValue` - The previous tag value
+
+**Example:**
+```php
+use Masum\Tagging\Events\TagUpdated;
+
+Event::listen(TagUpdated::class, function ($event) {
+    Log::info('Tag updated', [
+        'old' => $event->oldValue,
+        'new' => $event->tag->value,
+        'model' => get_class($event->taggable),
+    ]);
+});
+```
+
+#### TagDeleted
+Dispatched when a tag is deleted (usually when the model is deleted).
+
+**Properties:**
+- `$tagValue` - The deleted tag value (string)
+- `$taggableType` - The model class name
+- `$taggableId` - The model ID
+
+**Example:**
+```php
+use Masum\Tagging\Events\TagDeleted;
+
+Event::listen(TagDeleted::class, function ($event) {
+    // Archive deleted tags
+    DeletedTagArchive::create([
+        'value' => $event->tagValue,
+        'model' => $event->taggableType,
+        'model_id' => $event->taggableId,
+        'deleted_at' => now(),
+    ]);
+});
+```
+
+#### TagGenerationFailed
+Dispatched when tag generation fails (e.g., after max retries).
+
+**Properties:**
+- `$taggable` - The model that failed to get a tag
+- `$exception` - The exception that was thrown
+- `$fallbackTag` - Fallback tag used (if any)
+
+**Example:**
+```php
+use Masum\Tagging\Events\TagGenerationFailed;
+
+Event::listen(TagGenerationFailed::class, function ($event) {
+    // Alert administrators
+    Log::critical('Tag generation failed', [
+        'model' => get_class($event->taggable),
+        'id' => $event->taggable->id,
+        'error' => $event->exception->getMessage(),
+    ]);
+
+    // Send urgent notification
+    Mail::to('admin@example.com')->send(
+        new TagGenerationFailedMail($event)
+    );
+});
+```
+
+### Registering Event Listeners
+
+**In EventServiceProvider:**
+```php
+use Masum\Tagging\Events\{TagCreated, TagUpdated, TagDeleted, TagGenerationFailed};
+
+protected $listen = [
+    TagCreated::class => [
+        SendTagCreatedNotification::class,
+        LogTagCreation::class,
+        UpdateInventorySystem::class,
+    ],
+    TagUpdated::class => [
+        LogTagUpdate::class,
+        SyncWithExternalSystem::class,
+    ],
+    TagDeleted::class => [
+        ArchiveDeletedTag::class,
+    ],
+    TagGenerationFailed::class => [
+        AlertAdministrators::class,
+    ],
+];
+```
+
+**Using Event Subscribers:**
+```php
+class TagEventSubscriber
+{
+    public function handleTagCreated($event)
+    {
+        // Handle tag created
+    }
+
+    public function handleTagUpdated($event)
+    {
+        // Handle tag updated
+    }
+
+    public function subscribe($events)
+    {
+        $events->listen(
+            TagCreated::class,
+            [TagEventSubscriber::class, 'handleTagCreated']
+        );
+
+        $events->listen(
+            TagUpdated::class,
+            [TagEventSubscriber::class, 'handleTagUpdated']
+        );
+    }
+}
+
+// Register in EventServiceProvider
+protected $subscribe = [
+    TagEventSubscriber::class,
+];
+```
+
+### Use Cases
+
+**Audit Trail:**
+```php
+Event::listen(TagCreated::class, function ($event) {
+    DB::table('tag_audit_log')->insert([
+        'action' => 'created',
+        'tag_value' => $event->tag->value,
+        'model_type' => get_class($event->taggable),
+        'model_id' => $event->taggable->id,
+        'user_id' => auth()->id(),
+        'created_at' => now(),
+    ]);
+});
+```
+
+**Webhook Integration:**
+```php
+Event::listen(TagCreated::class, function ($event) {
+    Http::post(config('services.inventory.webhook_url'), [
+        'event' => 'tag.created',
+        'tag' => $event->tag->value,
+        'item' => [
+            'type' => get_class($event->taggable),
+            'id' => $event->taggable->id,
+            'name' => $event->taggable->name ?? null,
+        ],
+        'timestamp' => now()->toIso8601String(),
+    ]);
+});
+```
+
+**Slack Notifications:**
+```php
+Event::listen(TagGenerationFailed::class, function ($event) {
+    Notification::route('slack', config('services.slack.webhook'))
+        ->notify(new SlackNotification([
+            'title' => '⚠️ Tag Generation Failed',
+            'message' => "Failed to generate tag for " . get_class($event->taggable),
+            'error' => $event->exception->getMessage(),
+        ]));
+});
+```
+
+## Exception Handling
+
+The package provides specific exception classes for better error handling and debugging.
+
+### Available Exceptions
+
+All exceptions are in the `Masum\Tagging\Exceptions` namespace and extend `TaggingException`.
+
+#### TagGenerationException
+Thrown when tag generation fails.
+
+**Factory Methods:**
+- `configNotFound(string $modelClass)` - No configuration found for model
+- `concurrencyFailure(string $modelClass, int $attempts)` - Failed after max retries
+- `invalidConfig(string $reason)` - Invalid tag configuration
+
+**Example:**
+```php
+use Masum\Tagging\Exceptions\TagGenerationException;
+
+try {
+    $equipment = Equipment::create(['name' => 'Router']);
+} catch (TagGenerationException $e) {
+    // Handle tag generation failure
+    Log::error('Failed to generate tag', [
+        'error' => $e->getMessage(),
+        'equipment' => $equipment->id ?? null,
+    ]);
+
+    // Maybe assign a manual tag
+    if (isset($equipment)) {
+        $equipment->update(['tag' => 'MANUAL-' . time()]);
+    }
+
+    // Show user-friendly message
+    return response()->json([
+        'error' => 'Could not generate automatic tag. Please assign manually.'
+    ], 500);
+}
+```
+
+#### DuplicateTagException
+Thrown when attempting to create a duplicate tag.
+
+**Factory Methods:**
+- `forModel(string $tagValue, string $modelClass)` - Tag already exists for model
+- `valueExists(string $tagValue)` - Tag value already in use
+
+**Example:**
+```php
+use Masum\Tagging\Exceptions\DuplicateTagException;
+
+try {
+    $tag = Tag::create([
+        'value' => 'EQ-001',
+        'taggable_type' => Equipment::class,
+        'taggable_id' => 1,
+    ]);
+} catch (DuplicateTagException $e) {
+    return response()->json([
+        'error' => 'This tag already exists. Please choose a different value.'
+    ], 409);
+}
+```
+
+#### InvalidTagFormatException
+Thrown when tag format validation fails.
+
+**Factory Methods:**
+- `create(string $tag, string $reason)` - Generic format error
+- `lengthExceeded(string $tag, int $maxLength)` - Tag too long
+- `invalidCharacters(string $tag, string $allowedPattern)` - Invalid characters
+
+**Example:**
+```php
+use Masum\Tagging\Exceptions\InvalidTagFormatException;
+
+try {
+    $equipment->tag = 'INVALID TAG WITH SPACES!!!';
+} catch (InvalidTagFormatException $e) {
+    return response()->json([
+        'error' => 'Invalid tag format. Use only alphanumeric characters and dashes.'
+    ], 422);
+}
+```
+
+### Global Exception Handling
+
+**In your Handler.php:**
+```php
+use Masum\Tagging\Exceptions\TaggingException;
+use Masum\Tagging\Exceptions\TagGenerationException;
+use Masum\Tagging\Exceptions\DuplicateTagException;
+
+public function register(): void
+{
+    $this->renderable(function (TagGenerationException $e, Request $request) {
+        Log::error('Tag generation failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'error' => 'Failed to generate tag automatically.',
+                'message' => config('app.debug') ? $e->getMessage() : 'Please contact support.',
+            ], 500);
+        }
+
+        return back()->with('error', 'Failed to generate tag. Please try again.');
+    });
+
+    $this->renderable(function (DuplicateTagException $e, Request $request) {
+        if ($request->wantsJson()) {
+            return response()->json([
+                'error' => 'Duplicate tag detected.',
+            ], 409);
+        }
+
+        return back()->with('error', 'This tag already exists.');
+    });
+}
+```
+
+### Best Practices
+
+**1. Always catch specific exceptions first:**
+```php
+try {
+    $equipment = Equipment::create($data);
+} catch (DuplicateTagException $e) {
+    // Handle duplicates
+} catch (InvalidTagFormatException $e) {
+    // Handle format errors
+} catch (TagGenerationException $e) {
+    // Handle generation failures
+} catch (\Exception $e) {
+    // Handle other errors
+}
+```
+
+**2. Log exceptions with context:**
+```php
+catch (TagGenerationException $e) {
+    Log::error('Tag generation failed', [
+        'exception' => get_class($e),
+        'message' => $e->getMessage(),
+        'model' => $modelClass,
+        'data' => $data,
+    ]);
+}
+```
+
+**3. Provide user-friendly messages:**
+```php
+catch (TaggingException $e) {
+    $userMessage = config('app.debug')
+        ? $e->getMessage()
+        : 'An error occurred. Please contact support.';
+
+    return response()->json(['error' => $userMessage], 500);
+}
 ```
 
 ## Performance & Best Practices

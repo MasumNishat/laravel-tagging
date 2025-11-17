@@ -1,0 +1,940 @@
+openapi: 3.0.3
+info:
+  title: Laravel Tagging API
+  description: |
+    REST API for the Laravel Tagging package. Provides automatic tag generation and management
+    for Eloquent models with support for multiple tag formats, barcode generation, and bulk operations.
+
+    ## Features
+    - Tag configuration management (CRUD)
+    - Tag listing and searching
+    - Bulk tag operations (regenerate, delete)
+    - Barcode generation (SVG, PNG, HTML, Base64)
+    - Print-ready labels
+    - Meta endpoints for available models and formats
+
+    ## Authentication
+    By default, routes use the 'api' middleware. You can add authentication by configuring
+    the middleware in config/tagging.php:
+
+    ```php
+    'routes' => [
+        'middleware' => ['api', 'auth:sanctum'],
+    ],
+    ```
+
+    ## Base URL
+    The default base URL is `/api` but can be configured via the `routes.prefix` setting.
+
+  version: 1.1.0
+  contact:
+    name: Laravel Tagging
+    url: https://github.com/MasumNishat/laravel-tagging
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost/api
+    description: Local development server
+  - url: https://example.com/api
+    description: Production server
+
+tags:
+  - name: Tag Configurations
+    description: Manage tag configurations for models
+  - name: Tags
+    description: Manage tags and view tag information
+  - name: Bulk Operations
+    description: Perform bulk operations on tags
+  - name: Barcodes
+    description: Generate barcodes for tags
+  - name: Meta
+    description: Get metadata and configuration options
+
+paths:
+  /tag-configs:
+    get:
+      tags:
+        - Tag Configurations
+      summary: List all tag configurations
+      description: Retrieve a paginated list of tag configurations with optional filters
+      operationId: listTagConfigs
+      parameters:
+        - name: search
+          in: query
+          description: Search by model name, prefix, or description
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - name: number_format
+          in: query
+          description: Filter by number format
+          required: false
+          schema:
+            type: string
+            enum: [sequential, random, branch_based]
+        - name: per_page
+          in: query
+          description: Items per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 15
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagConfigListResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Tag Configurations
+      summary: Create tag configuration
+      description: Create a new tag configuration for a model
+      operationId: createTagConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagConfigCreateRequest'
+      responses:
+        '201':
+          description: Tag configuration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagConfigResponse'
+        '422':
+          description: Validation error or duplicate configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tag-configs/{id}:
+    get:
+      tags:
+        - Tag Configurations
+      summary: Get tag configuration
+      description: Retrieve a specific tag configuration by ID
+      operationId: getTagConfig
+      parameters:
+        - $ref: '#/components/parameters/TagConfigId'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagConfigResponse'
+        '404':
+          description: Tag configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Tag Configurations
+      summary: Update tag configuration
+      description: Update an existing tag configuration
+      operationId: updateTagConfig
+      parameters:
+        - $ref: '#/components/parameters/TagConfigId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagConfigUpdateRequest'
+      responses:
+        '200':
+          description: Tag configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagConfigResponse'
+        '404':
+          description: Tag configuration not found
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Tag Configurations
+      summary: Delete tag configuration
+      description: Delete a tag configuration
+      operationId: deleteTagConfig
+      parameters:
+        - $ref: '#/components/parameters/TagConfigId'
+      responses:
+        '200':
+          description: Tag configuration deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Tag configuration deleted successfully
+        '404':
+          description: Tag configuration not found
+        '500':
+          description: Server error
+
+  /tag-configs/meta/number-formats:
+    get:
+      tags:
+        - Meta
+      summary: Get number format options
+      description: Retrieve available tag number formats with descriptions and examples
+      operationId: getNumberFormats
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Number formats retrieved successfully
+                  data:
+                    type: object
+                    properties:
+                      sequential:
+                        $ref: '#/components/schemas/NumberFormat'
+                      random:
+                        $ref: '#/components/schemas/NumberFormat'
+                      branch_based:
+                        $ref: '#/components/schemas/NumberFormat'
+
+  /tag-configs/meta/available-models:
+    get:
+      tags:
+        - Meta
+      summary: Get available models
+      description: |
+        Retrieve all models that use the Tagable trait and have TAGABLE constant defined.
+        Returns a mapping of fully-qualified class names to display names.
+      operationId: getAvailableModels
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Available models retrieved successfully
+                  data:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    example:
+                      'App\Models\Equipment': 'Equipment::Generic'
+                      'App\Models\Brand': 'Brand'
+                      'App\Models\Location': 'Location'
+
+  /tags:
+    get:
+      tags:
+        - Tags
+      summary: List all tags
+      description: Retrieve a paginated list of tags with optional filters
+      operationId: listTags
+      parameters:
+        - name: search
+          in: query
+          description: Search by tag value
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - name: model
+          in: query
+          description: Filter by model type (fully-qualified class name)
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+        - name: per_page
+          in: query
+          description: Items per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagListResponse'
+        '500':
+          description: Server error
+
+  /tags/{id}:
+    get:
+      tags:
+        - Tags
+      summary: Get tag
+      description: Retrieve a specific tag by ID with its related model
+      operationId: getTag
+      parameters:
+        - $ref: '#/components/parameters/TagId'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagResponse'
+        '404':
+          description: Tag not found
+
+  /tags/bulk/regenerate:
+    post:
+      tags:
+        - Bulk Operations
+      summary: Bulk regenerate tags
+      description: |
+        Regenerate tags for multiple items at once. Useful when changing tag format,
+        fixing incorrect tags, or resequencing tags. Uses database transactions for consistency.
+      operationId: bulkRegenerate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tag_ids
+              properties:
+                tag_ids:
+                  type: array
+                  items:
+                    type: integer
+                  minItems: 1
+                  description: Array of tag IDs to regenerate
+                  example: [1, 2, 3, 4, 5]
+      responses:
+        '200':
+          description: Bulk regeneration completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Bulk regeneration completed
+                  data:
+                    type: object
+                    properties:
+                      regenerated:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                            old_value:
+                              type: string
+                            new_value:
+                              type: string
+                      failed:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                            error:
+                              type: string
+        '422':
+          description: Validation error
+        '500':
+          description: Server error
+
+  /tags/bulk/delete:
+    post:
+      tags:
+        - Bulk Operations
+      summary: Bulk delete tags
+      description: Delete multiple tags at once in a single efficient query
+      operationId: bulkDelete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tag_ids
+              properties:
+                tag_ids:
+                  type: array
+                  items:
+                    type: integer
+                  minItems: 1
+                  description: Array of tag IDs to delete
+                  example: [1, 2, 3]
+      responses:
+        '200':
+          description: Tags deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Successfully deleted 3 tags
+                  data:
+                    type: object
+                    properties:
+                      deleted_count:
+                        type: integer
+                        example: 3
+        '422':
+          description: Validation error
+        '500':
+          description: Server error
+
+  /tags/{id}/barcode:
+    get:
+      tags:
+        - Barcodes
+      summary: Generate barcode for tag
+      description: Generate a barcode for a specific tag in various formats
+      operationId: generateBarcode
+      parameters:
+        - $ref: '#/components/parameters/TagId'
+        - name: format
+          in: query
+          description: Barcode output format
+          required: false
+          schema:
+            type: string
+            enum: [svg, png, html, base64]
+            default: svg
+        - name: width_factor
+          in: query
+          description: Width multiplier for barcode
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 2
+        - name: height
+          in: query
+          description: Height in pixels
+          required: false
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 200
+            default: 30
+      responses:
+        '200':
+          description: Barcode generated successfully
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      barcode:
+                        type: string
+                        description: Base64 data URL
+                      tag:
+                        type: string
+        '404':
+          description: Tag not found
+        '500':
+          description: Server error
+
+  /tags/batch-barcodes:
+    post:
+      tags:
+        - Barcodes
+      summary: Generate barcodes for multiple tags
+      description: Generate base64 encoded barcodes for multiple tags (for batch printing)
+      operationId: batchBarcodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tag_ids
+              properties:
+                tag_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: Array of tag IDs
+                  example: [1, 2, 3, 4]
+                width_factor:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                  default: 2
+                height:
+                  type: integer
+                  minimum: 10
+                  maximum: 200
+                  default: 30
+      responses:
+        '200':
+          description: Barcodes generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Barcodes generated successfully
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        value:
+                          type: string
+                        barcode:
+                          type: string
+                          description: Base64 data URL
+                        taggable_type:
+                          type: string
+                        taggable_id:
+                          type: integer
+        '422':
+          description: Validation error
+        '500':
+          description: Server error
+
+  /tags/meta/barcode-types:
+    get:
+      tags:
+        - Meta
+      summary: Get barcode types
+      description: Retrieve all supported barcode formats
+      operationId: getBarcodeTypes
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Available barcode types retrieved successfully
+                  data:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    example:
+                      CODE_128: C128
+                      CODE_39: C39
+                      EAN_13: EAN13
+                      QR_CODE: QRCODE
+
+  /tags/print/labels:
+    get:
+      tags:
+        - Barcodes
+      summary: Print labels
+      description: Generate a print-ready page with barcode labels for multiple tags
+      operationId: printLabels
+      parameters:
+        - name: tag_ids
+          in: query
+          required: true
+          description: Comma-separated tag IDs or array
+          schema:
+            oneOf:
+              - type: string
+                example: "1,2,3,4"
+              - type: array
+                items:
+                  type: integer
+        - name: labels_per_row
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 3
+        - name: label_width
+          in: query
+          required: false
+          schema:
+            type: string
+            default: "2.5in"
+            example: "2.5in"
+        - name: label_height
+          in: query
+          required: false
+          schema:
+            type: string
+            default: "1in"
+            example: "1in"
+      responses:
+        '200':
+          description: Print-ready HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          description: Server error
+
+components:
+  parameters:
+    TagConfigId:
+      name: id
+      in: path
+      required: true
+      description: Tag configuration ID
+      schema:
+        type: integer
+
+    TagId:
+      name: id
+      in: path
+      required: true
+      description: Tag ID
+      schema:
+        type: integer
+
+  schemas:
+    TagConfig:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        model:
+          type: string
+          description: Fully-qualified model class name
+          example: "App\\Models\\Equipment"
+        prefix:
+          type: string
+          maxLength: 10
+          example: "EQ"
+        separator:
+          type: string
+          maxLength: 5
+          example: "-"
+        number_format:
+          type: string
+          enum: [sequential, random, branch_based]
+          example: "sequential"
+        auto_generate:
+          type: boolean
+          example: true
+        description:
+          type: string
+          nullable: true
+          maxLength: 1000
+          example: "Equipment tags"
+        current_number:
+          type: integer
+          description: Current counter for sequential tags
+          example: 5
+        padding_length:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+          example: 3
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TagConfigCreateRequest:
+      type: object
+      required:
+        - model
+        - prefix
+        - separator
+        - number_format
+      properties:
+        model:
+          type: string
+          maxLength: 255
+          example: "App\\Models\\Equipment"
+        prefix:
+          type: string
+          maxLength: 10
+          pattern: '^[A-Z0-9-_]+$'
+          example: "EQ"
+        separator:
+          type: string
+          maxLength: 5
+          example: "-"
+        number_format:
+          type: string
+          enum: [sequential, random, branch_based]
+          example: "sequential"
+        auto_generate:
+          type: boolean
+          default: true
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+        padding_length:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+        current_number:
+          type: integer
+          minimum: 0
+          default: 0
+
+    TagConfigUpdateRequest:
+      type: object
+      properties:
+        prefix:
+          type: string
+          maxLength: 10
+          pattern: '^[A-Z0-9-_]+$'
+        separator:
+          type: string
+          maxLength: 5
+        number_format:
+          type: string
+          enum: [sequential, random, branch_based]
+        auto_generate:
+          type: boolean
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+        padding_length:
+          type: integer
+          minimum: 1
+          maximum: 10
+        current_number:
+          type: integer
+          minimum: 0
+
+    TagConfigResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Tag configuration retrieved successfully"
+        data:
+          $ref: '#/components/schemas/TagConfig'
+
+    TagConfigListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Tag configurations retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagConfig'
+        meta:
+          type: object
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+
+    Tag:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        value:
+          type: string
+          example: "EQ-001"
+        taggable_type:
+          type: string
+          description: Fully-qualified model class name
+          example: "App\\Models\\Equipment"
+        taggable_id:
+          type: integer
+          example: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        taggable:
+          type: object
+          description: The related model (if loaded)
+          nullable: true
+
+    TagResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Tag retrieved successfully"
+        data:
+          $ref: '#/components/schemas/Tag'
+
+    TagListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Tags retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        meta:
+          type: object
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+
+    NumberFormat:
+      type: object
+      properties:
+        label:
+          type: string
+          example: "Sequential"
+        description:
+          type: string
+          example: "Generates sequential tags (e.g., BRD-001, BRD-002)"
+        example:
+          type: string
+          example: "PREFIX-001"
+
+    Pagination:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        total:
+          type: integer
+          example: 100
+        last_page:
+          type: integer
+          example: 7
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Failed to perform operation"
+        error:
+          type: string
+          description: Error details (only in debug mode)
+          nullable: true
