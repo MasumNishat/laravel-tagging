@@ -40,6 +40,10 @@ Route::prefix(config('tagging.routes.tags_prefix', 'api/tags'))
         Route::post('/batch-barcodes', [TagController::class, 'batchBarcodes'])->name('tagging.tags.batch-barcodes');
         Route::get('/print/labels', [TagController::class, 'printLabels'])->name('tagging.tags.print-labels');
 
+        // Bulk operations
+        Route::post('/bulk/regenerate', [TagController::class, 'bulkRegenerate'])->name('tagging.tags.bulk-regenerate');
+        Route::post('/bulk/delete', [TagController::class, 'bulkDelete'])->name('tagging.tags.bulk-delete');
+
         // Tag CRUD and listing
         Route::get('/', [TagController::class, 'index'])->name('tagging.tags.index');
         Route::get('/{tag}', [TagController::class, 'show'])->name('tagging.tags.show');

@@ -4,6 +4,11 @@ namespace Masum\Tagging\Traits;
 
 use Masum\Tagging\Models\Tag;
 use Masum\Tagging\Models\TagConfig;
+use Masum\Tagging\Events\TagCreated;
+use Masum\Tagging\Events\TagUpdated;
+use Masum\Tagging\Events\TagDeleted;
+use Masum\Tagging\Events\TagGenerationFailed;
+use Masum\Tagging\Exceptions\TagGenerationException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Facades\DB;
@@ -30,18 +35,52 @@ trait Tagable
                 ->first();
 
             if (!$existingTag) {
-                // Create tag relationship after model is saved and has an ID
-                Tag::create([
-                    'taggable_type' => get_class($model),
-                    'taggable_id' => $model->id,
-                    'value' => $model->generateNextTag()
-                ]);
+                try {
+                    $tagValue = $model->generateNextTag();
+                    $tagConfig = $model->tag_config;
+
+                    // Create tag relationship after model is saved and has an ID
+                    $tag = Tag::create([
+                        'taggable_type' => get_class($model),
+                        'taggable_id' => $model->id,
+                        'value' => $tagValue
+                    ]);
+
+                    // Dispatch TagCreated event
+                    event(new TagCreated($tag, $model, $tagConfig));
+                } catch (\Exception $e) {
+                    Log::error('Tag generation failed', [
+                        'model' => get_class($model),
+                        'id' => $model->id,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Dispatch TagGenerationFailed event
+                    event(new TagGenerationFailed($model, $e, null));
+
+                    // Re-throw if not in production
+                    if (config('app.debug')) {
+                        throw $e;
+                    }
+                }
             }
         });
 
         // Automatically delete tags when model is deleted
         static::deleting(function ($model) {
-            $model->tag()->delete();
+            $tag = $model->tag()->first();
+
+            if ($tag) {
+                $tagValue = $tag->value;
+                $tag->delete();
+
+                // Dispatch TagDeleted event
+                event(new TagDeleted(
+                    $tagValue,
+                    get_class($model),
+                    $model->id
+                ));
+            }
         });
     }
 
@@ -157,12 +196,30 @@ trait Tagable
     public function setTagAttribute($value): void
     {
         if ($value) {
-            $this->tag()->updateOrCreate(
+            $existingTag = $this->tag()->first();
+            $oldValue = $existingTag?->value;
+
+            $tag = $this->tag()->updateOrCreate(
                 ['taggable_type' => get_class($this), 'taggable_id' => $this->id],
                 ['value' => $value]
             );
+
+            // Dispatch TagUpdated event if value changed
+            if ($oldValue && $oldValue !== $value) {
+                event(new TagUpdated($tag, $this, $oldValue));
+            } elseif (!$oldValue) {
+                // If no old value, this is a creation
+                event(new TagCreated($tag, $this, $this->tag_config));
+            }
         } else {
-            $this->tag()->delete();
+            $tag = $this->tag()->first();
+            if ($tag) {
+                $tagValue = $tag->value;
+                $tag->delete();
+
+                // Dispatch TagDeleted event
+                event(new TagDeleted($tagValue, get_class($this), $this->id));
+            }
         }
     }
 
