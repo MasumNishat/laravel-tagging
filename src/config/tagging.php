@@ -73,4 +73,40 @@ return [
         'middleware' => ['api'], // Add 'auth:sanctum' or other middleware as needed
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Cache Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure caching for TagConfig lookups to improve performance.
+    | TagConfigs are cached since they rarely change.
+    |
+    */
+
+    'cache' => [
+        'enabled' => env('TAGGING_CACHE_ENABLED', true),
+        'ttl' => env('TAGGING_CACHE_TTL', 3600), // 1 hour in seconds
+        'driver' => env('TAGGING_CACHE_DRIVER', null), // null uses default cache driver
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Performance Settings
+    |--------------------------------------------------------------------------
+    |
+    | Settings to optimize tag generation performance and handle concurrency.
+    |
+    */
+
+    'performance' => [
+        // Maximum retries for concurrent tag generation
+        'max_retries' => env('TAGGING_MAX_RETRIES', 3),
+
+        // Lock timeout in seconds for database transactions
+        'lock_timeout' => env('TAGGING_LOCK_TIMEOUT', 10),
+
+        // Enable debug warnings for N+1 queries
+        'debug_n_plus_one' => env('TAGGING_DEBUG_N_PLUS_ONE', true),
+    ],
+
 ];

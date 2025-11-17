@@ -684,6 +684,135 @@ TagConfig::create([
 ]);
 ```
 
+## Performance & Best Practices
+
+### Avoiding N+1 Queries
+
+When loading multiple models with tags, **always use eager loading** to avoid N+1 query problems:
+
+```php
+// ❌ Bad - Creates N+1 queries (one query per model)
+$equipment = Equipment::all();
+foreach ($equipment as $item) {
+    echo $item->tag; // Separate query each time!
+}
+
+// ✅ Good - Single query for all tags
+$equipment = Equipment::with('tag')->all();
+foreach ($equipment as $item) {
+    echo $item->tag; // Uses loaded relationship
+}
+```
+
+The package will log warnings in debug mode when N+1 queries are detected. Disable warnings in `.env`:
+
+```env
+TAGGING_DEBUG_N_PLUS_ONE=false
+```
+
+### Caching Configuration
+
+Tag configurations are automatically cached to improve performance. Configure caching in `config/tagging.php`:
+
+```php
+'cache' => [
+    'enabled' => env('TAGGING_CACHE_ENABLED', true),
+    'ttl' => env('TAGGING_CACHE_TTL', 3600), // 1 hour
+],
+```
+
+Or via `.env`:
+
+```env
+TAGGING_CACHE_ENABLED=true
+TAGGING_CACHE_TTL=3600
+```
+
+Cache is automatically invalidated when tag configurations are updated or deleted.
+
+### Configurable Padding Length
+
+Customize the number of digits in sequential tags:
+
+```php
+TagConfig::create([
+    'model' => \App\Models\Equipment::class,
+    'prefix' => 'EQ',
+    'separator' => '-',
+    'number_format' => 'sequential',
+    'padding_length' => 5, // Generates: EQ-00001, EQ-00002, etc.
+]);
+```
+
+Default padding is 3 digits (`001`, `002`, etc.).
+
+### Race Condition Protection
+
+Sequential and branch-based tag generation uses database-level locking to prevent duplicate tags in high-concurrency scenarios. Configure retry behavior:
+
+```env
+TAGGING_MAX_RETRIES=3
+TAGGING_LOCK_TIMEOUT=10
+```
+
+The package will:
+1. Lock the tag configuration row during generation
+2. Atomically increment the counter
+3. Retry up to 3 times with exponential backoff if conflicts occur
+4. Fall back to timestamp-based tags if all retries fail
+
+### High-Concurrency Tips
+
+For applications with high concurrent tag generation:
+
+1. **Use a robust database**: PostgreSQL or MySQL with InnoDB engine
+2. **Monitor lock timeouts**: Check logs for lock timeout errors
+3. **Consider random format**: For very high throughput, use `random` format to avoid locking
+4. **Database indexes**: The package adds indexes automatically, but ensure your database is properly tuned
+
+### Performance Monitoring
+
+Enable query logging in development to monitor performance:
+
+```php
+// In your controller or service
+\DB::enableQueryLog();
+
+$equipment = Equipment::with('tag')->take(100)->get();
+
+dd(\DB::getQueryLog()); // Should show only 2-3 queries total
+```
+
+### Memory Optimization
+
+For bulk operations with thousands of records:
+
+```php
+// ✅ Good - Chunk large datasets
+Equipment::with('tag')->chunk(100, function ($equipment) {
+    foreach ($equipment as $item) {
+        // Process item
+    }
+});
+
+// ❌ Bad - Loads all records into memory
+$allEquipment = Equipment::with('tag')->get(); // Could run out of memory
+```
+
+### Index Usage
+
+The package creates these indexes for optimal performance:
+
+- Composite index on `(taggable_type, taggable_id)` - Fast polymorphic lookups
+- Unique constraint on `(taggable_type, taggable_id)` - Prevents duplicates
+- Index on `value` - Fast tag searches
+
+Verify indexes are created:
+
+```sql
+SHOW INDEXES FROM tagging_tags;
+```
+
 ## Requirements
 
 - PHP 8.1 or higher

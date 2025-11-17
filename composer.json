@@ -44,6 +44,12 @@
             ]
         }
     },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-coverage": "vendor/bin/phpunit --coverage-html coverage",
+        "test-unit": "vendor/bin/phpunit --testsuite Unit",
+        "test-feature": "vendor/bin/phpunit --testsuite Feature"
+    },
     "minimum-stability": "dev",
     "prefer-stable": true
 }
