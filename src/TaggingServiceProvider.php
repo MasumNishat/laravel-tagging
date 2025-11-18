@@ -31,6 +31,7 @@ class TaggingServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/database/migrations/create_tags_table.php' => database_path('migrations/'.date('Y_m_d_His', time()).'_create_tags_table.php'),
             __DIR__.'/database/migrations/create_tag_configs_table.php' => database_path('migrations/'.date('Y_m_d_His', time() + 1).'_create_tag_configs_table.php'),
+            __DIR__.'/database/migrations/add_improvements_to_tagging_tables.php' => database_path('migrations/'.date('Y_m_d_His', time() + 2).'_add_improvements_to_tagging_tables.php'),
         ], 'tagging-migrations');
 
         // Load views

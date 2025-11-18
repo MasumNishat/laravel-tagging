@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### Critical Documentation & Migration Fix (2025-11-18)
+- **Fixed missing migration** in service provider - `add_improvements_to_tagging_tables.php` was not being published
+- **Fixed misleading documentation** - All examples now show full namespace requirement
+  - Updated Quick Start to use `\App\Models\Equipment::class` instead of `Equipment::class`
+  - Added clear warning that `model` field requires fully qualified class name
+  - Fixed all code examples throughout README
+- **Added comprehensive Troubleshooting section** with common issues and solutions
+  - Tags not generated automatically
+  - Configuration not found errors
+  - Duplicate tag issues
+  - Sequential tag counter reset
+  - N+1 query warnings
+- **Automatic tag generation works correctly** - bootTagable() method properly registers event listeners
+
 ### Added
 
 #### Phase 4: New Features (2025-11-17)
