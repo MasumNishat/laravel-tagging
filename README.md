@@ -1,52 +1,99 @@
-# Laravel Tagging Package
+# Laravel Tagging
 
-A flexible Laravel package for automatic tag generation and management for any Eloquent model. This package provides polymorphic tagging with multiple tag generation strategies including sequential, random, and branch-based formats.
+<p align="center">
+  <img src="https://img.shields.io/packagist/v/masum/laravel-tagging.svg?style=flat-square" alt="Latest Version">
+  <img src="https://img.shields.io/packagist/dt/masum/laravel-tagging.svg?style=flat-square" alt="Total Downloads">
+  <img src="https://img.shields.io/packagist/l/masum/laravel-tagging.svg?style=flat-square" alt="License">
+  <img src="https://img.shields.io/packagist/php-v/masum/laravel-tagging.svg?style=flat-square" alt="PHP Version">
+  <img src="https://img.shields.io/badge/Laravel-10%20%7C%2011%20%7C%2012-orange.svg?style=flat-square" alt="Laravel Version">
+</p>
 
-## Features
+<p align="center">
+  <strong>A comprehensive Laravel package for automatic tag generation and management with barcode support, events, and performance optimizations.</strong>
+</p>
 
-- Automatic tag generation on model save
-- Multiple tag formats: sequential, random, and branch-based
-- Polymorphic relationships - tag any model
-- Configurable tag prefixes and separators
-- **Barcode generation** - Generate barcodes in multiple formats (CODE_128, QR Code, etc.)
-- **Print labels** - Print-ready barcode labels for physical tagging
-- Automatic tag cleanup on model deletion
-- Easy-to-use trait-based implementation
-- RESTful API for tag and configuration management
-- Customizable table names
-- Support for Laravel 10.x and 11.x
+---
+
+## Overview
+
+Laravel Tagging is a powerful, production-ready package that provides **automatic tag generation** and management for any Eloquent model. Perfect for inventory systems, asset tracking, equipment management, and any application requiring unique identifiers with barcode support.
+
+### Why Laravel Tagging?
+
+- 🏷️ **Automatic Tag Generation** - Tags are generated automatically when models are created
+- 🔢 **Multiple Formats** - Sequential (`EQ-001`), Random (`EQ-1698765432`), Branch-based (`SW-001-5`)
+- 📊 **Barcode Support** - Generate CODE_128, QR codes, and more formats for physical labels
+- 🖨️ **Print Labels** - Print-ready barcode labels for batch printing
+- ⚡ **High Performance** - Race condition protection, caching, query optimization
+- 🔔 **Event System** - Hook into tag operations for webhooks, audit trails, notifications
+- 🔄 **Bulk Operations** - Regenerate or delete multiple tags efficiently
+- 🛡️ **Production Ready** - Comprehensive tests, security hardening, error handling
+- 📱 **RESTful API** - Complete API for frontend/mobile integration
+- 🎨 **Polymorphic** - Tag any Eloquent model with a single trait
+
+---
+
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Features](#features)
+  - [Tag Generation Formats](#tag-generation-formats)
+  - [Barcode Generation](#barcode-generation)
+  - [Events & Webhooks](#events--webhooks)
+  - [Bulk Operations](#bulk-operations)
+  - [RESTful API](#restful-api)
+- [Configuration](#configuration)
+- [Usage](#usage)
+  - [Basic Usage](#basic-usage)
+  - [Advanced Features](#advanced-features)
+  - [API Integration](#api-integration)
+- [Performance](#performance)
+- [Security](#security)
+- [Testing](#testing)
+- [Documentation](#documentation)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [Credits](#credits)
+- [License](#license)
+
+---
+
+## Requirements
+
+- **PHP:** 8.1, 8.2, or 8.3
+- **Laravel:** 10.x, 11.x, or 12.x
+- **Database:** MySQL 5.7+, PostgreSQL 10+, SQLite 3.8+, SQL Server 2017+
+
+---
 
 ## Installation
 
-Install the package via composer:
+Install the package via Composer:
 
 ```bash
 composer require masum/laravel-tagging
 ```
 
-Publish the migrations:
+Publish and run migrations:
 
 ```bash
 php artisan vendor:publish --tag=tagging-migrations
-```
-
-Run the migrations:
-
-```bash
 php artisan migrate
 ```
 
-Optionally, publish the config file:
+*Optional:* Publish the configuration file:
 
 ```bash
 php artisan vendor:publish --tag=tagging-config
 ```
 
-## Usage
+---
 
-### Basic Setup
+## Quick Start
 
-1. Add the `Tagable` trait to your model:
+### 1. Add the Trait to Your Model
 
 ```php
 use Masum\Tagging\Traits\Tagable;
@@ -55,605 +102,303 @@ class Equipment extends Model
 {
     use Tagable;
 
-    // REQUIRED: Define TAGABLE constant as a string with the model's display name
-    // This will be used to identify the model in the UI and API responses
+    // Required: Define display name for the model
     const TAGABLE = 'Equipment::Generic';
+
+    protected $fillable = ['name', 'description'];
 }
 ```
 
-**Important:** Both the `Tagable` trait and `TAGABLE` constant are **required**. The `TAGABLE` constant must be a string value that represents the human-readable name of your model. This name will appear in dropdowns, API responses, and throughout the management interface.
-
-Examples of TAGABLE values:
-```php
-const TAGABLE = 'Brand';                    // Simple name
-const TAGABLE = 'Equipment::Generic';       // Namespaced name
-const TAGABLE = 'Fiber::Cable';            // Category-based name
-const TAGABLE = 'Equipment::ONU_ONT';      // Equipment type name
-```
-
-2. Create a tag configuration for your model (via code or API):
+### 2. Create a Tag Configuration
 
 ```php
 use Masum\Tagging\Models\TagConfig;
 
 TagConfig::create([
-    'model' => \App\Models\Equipment::class,
+    'model' => Equipment::class,
     'prefix' => 'EQ',
     'separator' => '-',
-    'number_format' => 'sequential', // sequential, random, or branch_based
+    'number_format' => 'sequential',  // or 'random', 'branch_based'
     'auto_generate' => true,
-    'description' => 'Equipment tags',
 ]);
 ```
 
-Or use the built-in API (see [API Management](#api-management) section below).
+### 3. Create Models - Tags Generated Automatically!
 
-### Tag Generation Formats
+```php
+$equipment = Equipment::create(['name' => 'Cisco Router']);
+
+echo $equipment->tag;  // Output: EQ-001
+
+$router2 = Equipment::create(['name' => 'TP-Link Switch']);
+echo $router2->tag;    // Output: EQ-002
+```
+
+**That's it!** Tags are now automatically generated for all Equipment models. 🎉
+
+---
+
+## Features
+
+### ✨ Core Features
+
+| Feature | Description |
+|---------|-------------|
+| **Automatic Generation** | Tags generated on model creation |
+| **Multiple Formats** | Sequential, Random, Branch-based |
+| **Polymorphic** | Tag any Eloquent model |
+| **Barcode Support** | CODE_128, QR, EAN, UPC, and more |
+| **Print Labels** | Print-ready barcode labels |
+| **Events System** | 4 events for extensibility |
+| **Bulk Operations** | Efficient batch processing |
+| **RESTful API** | Complete API endpoints |
+| **Caching** | Performance optimizations |
+| **Race Protection** | Concurrent tag generation safe |
+| **Security** | Input validation, SQL injection prevention |
+| **Exceptions** | Specific exception classes |
+| **N+1 Prevention** | Query optimization |
+| **Comprehensive Tests** | Unit and feature tests included |
+
+### 🔢 Tag Generation Formats
 
 #### Sequential Tags
-Generates tags like: `EQ-001`, `EQ-002`, `EQ-003`
-
+Perfect for inventory systems requiring ordered numbering:
 ```php
-TagConfig::create([
-    'model' => \App\Models\Equipment::class,
-    'prefix' => 'EQ',
-    'separator' => '-',
-    'number_format' => 'sequential',
-]);
+EQ-001, EQ-002, EQ-003, ...
 ```
 
-#### Random Tags (Timestamp-based)
-Generates tags like: `EQ-1698765432`
-
+#### Random Tags
+Great for high-concurrency systems:
 ```php
-TagConfig::create([
-    'model' => \App\Models\Cable::class,
-    'prefix' => 'CB',
-    'separator' => '-',
-    'number_format' => 'random',
-]);
+EQ-1698765432, EQ-1698765499, ...
 ```
 
 #### Branch-Based Tags
-Generates tags like: `SW-001-5` (where 5 is the branch_id)
-
+Ideal for multi-location tracking:
 ```php
-TagConfig::create([
-    'model' => \App\Models\Switch::class,
-    'prefix' => 'SW',
-    'separator' => '-',
-    'number_format' => 'branch_based',
-]);
-
-// Your model should have a branch_id attribute
-$switch = Switch::create([
-    'name' => 'Main Switch',
-    'branch_id' => 5,
-]);
-// Tag will be automatically generated: SW-001-5
+SW-001-5, SW-002-5, SW-001-7
+// Format: {PREFIX}-{NUMBER}-{BRANCH_ID}
 ```
 
-### Accessing Tags
+### 📊 Barcode Generation
+
+Generate barcodes in multiple formats for physical tagging:
 
 ```php
-$equipment = Equipment::create(['name' => 'Router']);
-
-// Access the tag value
-echo $equipment->tag; // Output: EQ-001
-
-// Access the full tag relationship
-$tagModel = $equipment->tag();
-
-// Get tag configuration
-$config = $equipment->tag_config;
+// In your code
+$tag = Tag::find(1);
+$barcode = $tag->generateBarcodeSVG();  // SVG format
+$png = $tag->generateBarcodePNG();      // PNG format
+$base64 = $tag->getBarcodeBase64();     // Base64 data URL
 ```
 
-### Manual Tag Management
+**Via API:**
+```http
+GET /api/tags/1/barcode?format=svg&width_factor=2&height=30
+POST /api/tags/batch-barcodes  # Generate multiple barcodes
+GET /api/tags/print/labels      # Print-ready labels
+```
+
+**Supported Formats:** CODE_128, CODE_39, EAN_13, UPC, QR_CODE, and more
+
+### 🔔 Events & Webhooks
+
+Hook into tag lifecycle for custom logic:
 
 ```php
-// Manually set a tag
-$equipment->tag = 'CUSTOM-001';
+use Masum\Tagging\Events\{TagCreated, TagUpdated, TagDeleted, TagGenerationFailed};
 
-// Ensure a tag exists (generate if missing)
-$equipment->ensureTag();
+// Send webhook when tag is created
+Event::listen(TagCreated::class, function ($event) {
+    Http::post('https://api.example.com/webhooks/tag-created', [
+        'tag' => $event->tag->value,
+        'model' => get_class($event->taggable),
+    ]);
+});
 
-// Generate next tag without saving
-$nextTag = $equipment->generateNextTag();
+// Log tag updates to audit trail
+Event::listen(TagUpdated::class, function ($event) {
+    AuditLog::create([
+        'action' => 'tag_updated',
+        'old_value' => $event->oldValue,
+        'new_value' => $event->tag->value,
+    ]);
+});
 
-// Remove a tag
-$equipment->tag = null;
+// Alert on generation failures
+Event::listen(TagGenerationFailed::class, function ($event) {
+    Mail::to('admin@example.com')->send(new TagFailedAlert($event));
+});
 ```
 
-### Automatic Tag Generation
+### 🔄 Bulk Operations
 
-Tags are automatically generated when:
-- A new model is created
-- An existing model without a tag is saved
+Efficient batch processing for large datasets:
 
-Tags are automatically deleted when:
-- The model is deleted
+**Bulk Regenerate:**
+```http
+POST /api/tags/bulk/regenerate
+{
+  "tag_ids": [1, 2, 3, 4, 5]
+}
+```
+
+**Bulk Delete:**
+```http
+POST /api/tags/bulk/delete
+{
+  "tag_ids": [10, 11, 12]
+}
+```
+
+**Features:**
+- Database transactions for consistency
+- Individual error handling
+- Detailed success/failure reporting
+- Automatic logging
+
+### 📱 RESTful API
+
+Complete API for frontend/mobile apps:
+
+**Tag Configurations:**
+- `GET /api/tag-configs` - List configurations
+- `POST /api/tag-configs` - Create configuration
+- `PUT /api/tag-configs/{id}` - Update configuration
+- `DELETE /api/tag-configs/{id}` - Delete configuration
+
+**Tags:**
+- `GET /api/tags` - List all tags
+- `GET /api/tags/{id}` - Get specific tag
+- `GET /api/tags/{id}/barcode` - Generate barcode
+- `POST /api/tags/batch-barcodes` - Batch barcodes
+- `GET /api/tags/print/labels` - Print labels
+
+**Meta Endpoints:**
+- `GET /api/tag-configs/meta/number-formats` - Available formats
+- `GET /api/tag-configs/meta/available-models` - Taggable models
+- `GET /api/tags/meta/barcode-types` - Barcode types
+
+**Full OpenAPI 3.0 specification available in `docs/openapi.yaml`**
+
+---
 
 ## Configuration
 
-The package configuration file (`config/tagging.php`) allows you to customize:
+The package is highly configurable. Publish the config file:
+
+```bash
+php artisan vendor:publish --tag=tagging-config
+```
+
+### Key Configuration Options
 
 ```php
 return [
-    // Customize table names
+    // Database table names
     'tables' => [
         'tags' => 'tags',
         'tag_configs' => 'tag_configs',
     ],
 
+    // Table prefix
+    'table_prefix' => env('TAGGING_TABLE_PREFIX', 'tagging_'),
+
     // Fallback prefix when no config exists
     'fallback_prefix' => env('TAGGING_FALLBACK_PREFIX', 'TAG'),
 
-    // Default configuration values
+    // Default values
     'defaults' => [
         'separator' => '-',
         'number_format' => 'sequential',
         'auto_generate' => true,
     ],
+
+    // Caching configuration
+    'cache' => [
+        'enabled' => env('TAGGING_CACHE_ENABLED', true),
+        'ttl' => env('TAGGING_CACHE_TTL', 3600),
+        'driver' => env('TAGGING_CACHE_DRIVER', null),
+    ],
+
+    // Performance settings
+    'performance' => [
+        'max_retries' => env('TAGGING_MAX_RETRIES', 3),
+        'lock_timeout' => env('TAGGING_LOCK_TIMEOUT', 10),
+        'debug_n_plus_one' => env('TAGGING_DEBUG_N_PLUS_ONE', true),
+    ],
+
+    // API Routes
+    'routes' => [
+        'enabled' => env('TAGGING_ROUTES_ENABLED', true),
+        'prefix' => 'api/tag-configs',
+        'middleware' => ['api'],  // Add 'auth:sanctum' for authentication
+    ],
 ];
 ```
 
-## Database Schema
+### Environment Variables
 
-### Tags Table
-```
-- id
-- value (string)
-- taggable_type (string)
-- taggable_id (bigint)
-- timestamps
-```
-
-### Tag Configs Table
-```
-- id
-- prefix (string)
-- separator (string)
-- number_format (enum: sequential, branch_based, random)
-- auto_generate (boolean)
-- description (text, nullable)
-- model (string, unique)
-- timestamps
-```
-
-## API Management
-
-The package includes built-in REST API endpoints for managing tag configurations from your frontend or mobile app.
-
-### API Endpoints
-
-The following endpoints are automatically registered at `/api/tag-configs`:
-
-#### List All Tag Configurations
-```http
-GET /api/tag-configs
-```
-
-Query Parameters:
-- `search` - Search by model, prefix, or description
-- `number_format` - Filter by format (sequential, random, branch_based)
-- `per_page` - Items per page (default: 15)
-
-Response:
-```json
-{
-  "success": true,
-  "message": "Tag configurations retrieved successfully",
-  "data": [...],
-  "meta": {
-    "pagination": { ... }
-  }
-}
-```
-
-#### Create Tag Configuration
-```http
-POST /api/tag-configs
-Content-Type: application/json
-
-{
-  "model": "App\\Models\\Equipment",
-  "prefix": "EQ",
-  "separator": "-",
-  "number_format": "sequential",
-  "auto_generate": true,
-  "description": "Equipment tags"
-}
-```
-
-#### Get Single Tag Configuration
-```http
-GET /api/tag-configs/{id}
-```
-
-#### Update Tag Configuration
-```http
-PUT /api/tag-configs/{id}
-Content-Type: application/json
-
-{
-  "prefix": "EQUIP",
-  "description": "Updated description"
-}
-```
-
-#### Delete Tag Configuration
-```http
-DELETE /api/tag-configs/{id}
-```
-
-#### Get Number Format Options
-```http
-GET /api/tag-configs/meta/number-formats
-```
-
-Returns available formats with descriptions and examples.
-
-Response:
-```json
-{
-  "success": true,
-  "message": "Number formats retrieved successfully",
-  "data": {
-    "sequential": {
-      "label": "Sequential",
-      "description": "Sequential numbering (e.g., EQ-001, EQ-002)",
-      "example": "EQ-001"
-    },
-    "random": {
-      "label": "Random",
-      "description": "Random timestamp-based (e.g., EQ-1698765432)",
-      "example": "EQ-1698765432"
-    },
-    "branch_based": {
-      "label": "Branch Based",
-      "description": "Branch-specific sequential (e.g., EQ-001-5)",
-      "example": "EQ-001-5"
-    }
-  }
-}
-```
-
-#### Get Available Models
-```http
-GET /api/tag-configs/meta/available-models
-```
-
-Returns all models in your application that:
-1. Use the `Masum\Tagging\Traits\Tagable` trait
-2. Define a `TAGABLE` constant as a string
-
-Response:
-```json
-{
-  "success": true,
-  "message": "Available models retrieved successfully",
-  "data": {
-    "App\\Models\\Equipment": "Equipment::Generic",
-    "App\\Models\\Brand": "Brand",
-    "App\\Models\\Location": "Location",
-    "App\\Models\\FiberCable": "Fiber::Cable"
-  }
-}
-```
-
-The response maps fully-qualified model class names to their display names (from the `TAGABLE` constant). This is useful for:
-- Populating dropdowns in your UI
-- Showing user-friendly model names
-- Filtering models that are eligible for tagging
-
-**Note:** Only models that have BOTH the `Tagable` trait AND the `TAGABLE` constant will be returned by this endpoint.
-
-### API Configuration
-
-Configure the API routes in `config/tagging.php`:
-
-```php
-'routes' => [
-    'enabled' => true,                    // Enable/disable API routes
-    'prefix' => 'api/tag-configs',        // Route prefix
-    'middleware' => ['api'],              // Middleware (add 'auth:sanctum' for auth)
-],
-```
-
-To disable API routes, set in `.env`:
 ```env
-TAGGING_ROUTES_ENABLED=false
+# Caching
+TAGGING_CACHE_ENABLED=true
+TAGGING_CACHE_TTL=3600
+
+# Performance
+TAGGING_MAX_RETRIES=3
+TAGGING_LOCK_TIMEOUT=10
+TAGGING_DEBUG_N_PLUS_ONE=true
+
+# API
+TAGGING_ROUTES_ENABLED=true
+
+# Custom Settings
+TAGGING_FALLBACK_PREFIX=TAG
 ```
 
-To add authentication:
+---
+
+## Usage
+
+### Basic Usage
+
+#### Accessing Tags
+
 ```php
-'routes' => [
-    'middleware' => ['api', 'auth:sanctum'],
-],
+$equipment = Equipment::find(1);
+
+// Get tag value
+echo $equipment->tag;  // EQ-001
+
+// Get tag model
+$tagModel = $equipment->tag();
+
+// Get tag configuration
+$config = $equipment->tag_config;
+
+// Ensure tag exists (generate if missing)
+$equipment->ensureTag();
+
+// Generate next tag without saving
+$nextTag = $equipment->generateNextTag();
 ```
 
-### Example: Frontend Integration
+#### Manual Tag Management
 
-```javascript
-// Fetch available models (for model selection dropdown)
-const modelsResponse = await fetch('/api/tag-configs/meta/available-models');
-const modelsData = await modelsResponse.json();
-// modelsData.data will be: { "App\\Models\\Equipment": "Equipment::Generic", ... }
-
-// Fetch all tag configurations
-const response = await fetch('/api/tag-configs');
-const data = await response.json();
-
-// Get number formats for dropdown
-const formatsResponse = await fetch('/api/tag-configs/meta/number-formats');
-const formats = await formatsResponse.json();
-
-// Create new tag configuration
-const createResponse = await fetch('/api/tag-configs', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    model: 'App\\Models\\Product',      // Full class name
-    prefix: 'PRD',
-    separator: '-',
-    number_format: 'sequential',
-    auto_generate: true,
-    description: 'Product tags'
-  })
-});
-```
-
-## Barcode Generation
-
-The package includes built-in barcode generation for physical label printing. Tags can be automatically converted to various barcode formats.
-
-### Features
-
-- Multiple barcode formats (CODE_128, CODE_39, EAN, UPC, QR Code, etc.)
-- SVG, PNG, HTML, and Base64 output formats
-- Batch barcode generation
-- Print-ready label views
-- Customizable barcode dimensions
-
-### Barcode API Endpoints
-
-#### Get Available Barcode Types
-```http
-GET /api/tags/meta/barcode-types
-```
-
-Returns all supported barcode formats:
-```json
-{
-  "success": true,
-  "message": "Available barcode types retrieved successfully",
-  "data": {
-    "CODE_128": "C128",
-    "CODE_39": "C39",
-    "EAN_13": "EAN13",
-    "QR_CODE": "QRCODE"
-  }
-}
-```
-
-#### Generate Single Barcode
-```http
-GET /api/tags/{tag_id}/barcode?format={format}&width_factor={width}&height={height}
-```
-
-**Parameters:**
-- `format` (optional): svg, png, base64, or html (default: svg)
-- `width_factor` (optional): Width multiplier (default: 2)
-- `height` (optional): Height in pixels (default: 30)
-
-**Examples:**
-```javascript
-// Get SVG barcode
-const svg = await fetch('/api/tags/1/barcode');
-
-// Get PNG barcode
-const png = await fetch('/api/tags/1/barcode?format=png');
-
-// Get Base64 for inline display
-const response = await fetch('/api/tags/1/barcode?format=base64');
-const data = await response.json();
-// data.data.barcode contains: data:image/png;base64,...
-```
-
-#### Batch Barcode Generation
-```http
-POST /api/tags/batch-barcodes
-Content-Type: application/json
-
-{
-  "tag_ids": [1, 2, 3, 4],
-  "width_factor": 2,
-  "height": 30
-}
-```
-
-Returns base64 encoded barcodes for multiple tags:
-```json
-{
-  "success": true,
-  "message": "Barcodes generated successfully",
-  "data": [
-    {
-      "id": 1,
-      "value": "EQ-001",
-      "barcode": "data:image/png;base64,...",
-      "taggable_type": "App\\Models\\Equipment",
-      "taggable_id": 1
-    }
-  ]
-}
-```
-
-### Print Labels
-
-#### Print Labels View
-```http
-GET /api/tags/print/labels?tag_ids=1,2,3&labels_per_row=3&label_width=2.5in&label_height=1in
-```
-
-**Parameters:**
-- `tag_ids` (required): Comma-separated tag IDs or array
-- `labels_per_row` (optional): Labels per row (default: 3)
-- `label_width` (optional): Label width (default: 2.5in)
-- `label_height` (optional): Label height (default: 1in)
-
-Opens a print-ready page with barcode labels for batch printing.
-
-### Customizing Print Labels
-
-You can customize what information appears on printed labels by defining a `TAG_LABEL` constant in your model. The label supports variable interpolation using `{attribute}` syntax.
-
-**Basic Example:**
 ```php
-use Masum\Tagging\Traits\Tagable;
+// Set custom tag
+$equipment->tag = 'CUSTOM-001';
 
-class Brand extends Model
-{
-    use Tagable;
-
-    const TAGABLE = 'Brand';
-    const TAG_LABEL = 'Brand: {name}';
-
-    protected $fillable = ['name'];
-}
+// Remove tag
+$equipment->tag = null;
 ```
 
-When printed, labels for this model will display:
-```
-BRD-001
-[BARCODE]
-Brand: Cisco
-```
-
-**Advanced Example with Multiple Attributes:**
-```php
-class Equipment extends Model
-{
-    use Tagable;
-
-    const TAGABLE = 'Equipment::Generic';
-    const TAG_LABEL = '{name} - {serial_no}';
-
-    protected $fillable = ['name', 'serial_no'];
-}
-```
-
-Label output:
-```
-EQ-001
-[BARCODE]
-Router-R1 - SN12345
-```
-
-**Nested Relationships (Upcoming):**
-```php
-class Equipment extends Model
-{
-    use Tagable;
-
-    const TAGABLE = 'Equipment::Generic';
-    const TAG_LABEL = '{name} ({location.name})';
-
-    public function location()
-    {
-        return $this->belongsTo(Location::class);
-    }
-}
-```
-
-**Important Notes:**
-- If `TAG_LABEL` is not defined, the label defaults to the model class name
-- Variable interpolation uses model attributes directly
-- Supports simple attribute access with `{attribute_name}`
-- Nested relationships like `{relationship.attribute}` are supported
-
-### Programmatic Usage
+#### Querying by Tags
 
 ```php
 use Masum\Tagging\Models\Tag;
 
-$tag = Tag::find(1);
-
-// Generate SVG barcode
-$svg = $tag->generateBarcodeSVG();
-
-// Generate PNG barcode
-$png = $tag->generateBarcodePNG();
-
-// Get base64 data URL for inline display
-$base64 = $tag->getBarcodeBase64();
-
-// Use in Blade views
-{!! $tag->generateBarcodeSVG() !!}
-
-// Or as img tag
-<img src="{{ $tag->getBarcodeBase64() }}" alt="Barcode">
-```
-
-### Frontend Integration Example
-
-```javascript
-// Fetch tags and display with barcodes
-async function displayTagsWithBarcodes() {
-  const response = await fetch('/api/tags/batch-barcodes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      tag_ids: [1, 2, 3, 4, 5],
-      width_factor: 2,
-      height: 40
-    })
-  });
-
-  const { data } = await response.json();
-
-  data.forEach(tag => {
-    const img = document.createElement('img');
-    img.src = tag.barcode;
-    img.alt = tag.value;
-    document.getElementById('barcodes').appendChild(img);
-  });
-}
-
-// Print labels for selected tags
-function printLabels(tagIds) {
-  const url = `/api/tags/print/labels?tag_ids=${tagIds.join(',')}`;
-  window.open(url, '_blank');
-}
-```
-
-## Advanced Usage
-
-### Custom Tag Generation Logic
-
-You can override the tag generation methods in your model:
-
-```php
-class Equipment extends Model
-{
-    use Tagable;
-
-    protected function generateSequentialTag(TagConfig $tagConfig, ?string $oldTag): string
-    {
-        // Your custom logic here
-        return parent::generateSequentialTag($tagConfig, $oldTag);
-    }
-}
-```
-
-### Querying by Tags
-
-```php
-use Masum\Tagging\Models\Tag;
-
-// Find models by tag value
+// Find model by tag value
 $tag = Tag::where('value', 'EQ-001')->first();
 $equipment = $tag->taggable;
 
@@ -661,43 +406,392 @@ $equipment = $tag->taggable;
 $equipmentTags = Tag::where('taggable_type', Equipment::class)->get();
 ```
 
-### Working with Multiple Models
+### Advanced Features
+
+#### Custom Print Labels
+
+Customize what appears on printed labels:
 
 ```php
-// Different configurations for different models
-TagConfig::create([
-    'model' => \App\Models\Equipment::class,
-    'prefix' => 'EQ',
-    'number_format' => 'sequential',
-]);
+class Brand extends Model
+{
+    use Tagable;
 
-TagConfig::create([
-    'model' => \App\Models\Cable::class,
-    'prefix' => 'CB',
-    'number_format' => 'branch_based',
-]);
+    const TAGABLE = 'Brand';
+    const TAG_LABEL = 'Brand: {name}';  // Variable interpolation
 
-TagConfig::create([
-    'model' => \App\Models\Port::class,
-    'prefix' => 'PT',
-    'number_format' => 'random',
-]);
+    protected $fillable = ['name'];
+}
 ```
 
-## Requirements
+Label output:
+```
+BRD-001
+[BARCODE]
+Brand: Cisco
+```
 
-- PHP 8.1 or higher
-- Laravel 10.x or 11.x
+#### Exception Handling
 
-## License
+```php
+use Masum\Tagging\Exceptions\{TagGenerationException, DuplicateTagException};
 
-This package is open-sourced software licensed under the MIT license.
+try {
+    $equipment = Equipment::create(['name' => 'Router']);
+} catch (TagGenerationException $e) {
+    Log::error('Tag generation failed', ['error' => $e->getMessage()]);
+    // Assign manual tag or handle error
+} catch (DuplicateTagException $e) {
+    // Handle duplicate tag scenario
+}
+```
+
+#### Custom Tag Generation Logic
+
+Override generation methods in your model:
+
+```php
+class Equipment extends Model
+{
+    use Tagable;
+
+    protected function generateSequentialTag(TagConfig $tagConfig): string
+    {
+        // Custom logic here
+        return parent::generateSequentialTag($tagConfig);
+    }
+}
+```
+
+### API Integration
+
+#### JavaScript/TypeScript Example
+
+```javascript
+// Fetch available models for dropdown
+const models = await fetch('/api/tag-configs/meta/available-models')
+  .then(res => res.json());
+
+// Create tag configuration
+const response = await fetch('/api/tag-configs', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    model: 'App\\Models\\Equipment',
+    prefix: 'EQ',
+    separator: '-',
+    number_format: 'sequential',
+    auto_generate: true
+  })
+});
+
+// Bulk regenerate tags
+const result = await fetch('/api/tags/bulk/regenerate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ tag_ids: [1, 2, 3] })
+});
+
+// Print labels
+window.open('/api/tags/print/labels?tag_ids=1,2,3', '_blank');
+```
+
+#### Vue.js Example
+
+```vue
+<template>
+  <div>
+    <img v-for="tag in tags" :key="tag.id" :src="tag.barcode" :alt="tag.value">
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return { tags: [] }
+  },
+  async mounted() {
+    const response = await fetch('/api/tags/batch-barcodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tag_ids: [1, 2, 3, 4, 5],
+        width_factor: 2,
+        height: 40
+      })
+    });
+    const data = await response.json();
+    this.tags = data.data;
+  }
+}
+</script>
+```
+
+---
+
+## Performance
+
+### Avoiding N+1 Queries
+
+**Always use eager loading** when loading multiple models with tags:
+
+```php
+// ❌ Bad - Creates N+1 queries
+$equipment = Equipment::all();
+foreach ($equipment as $item) {
+    echo $item->tag;  // Separate query each time!
+}
+
+// ✅ Good - Single query for all tags
+$equipment = Equipment::with('tag')->get();
+foreach ($equipment as $item) {
+    echo $item->tag;  // Uses loaded relationship
+}
+```
+
+The package logs N+1 warnings in debug mode.
+
+### Caching
+
+Tag configurations are automatically cached:
+
+```php
+// First call: queries database
+$config = TagConfig::forModel(Equipment::class);
+
+// Subsequent calls: uses cache (1 hour default)
+$config = TagConfig::forModel(Equipment::class);
+```
+
+Cache is automatically invalidated on config updates.
+
+### Race Condition Protection
+
+Sequential tag generation uses pessimistic locking:
+
+```php
+// Atomic counter increment with SELECT FOR UPDATE
+// Retries up to 3 times with exponential backoff
+// Falls back to timestamp-based tags if all retries fail
+```
+
+### Performance Targets
+
+- Tag generation: **< 100ms** (99th percentile)
+- API responses: **< 200ms** (95th percentile)
+- Supports **100+ concurrent** tag generations
+- Handles **1M+ tags** per model type
+
+### Database Indexes
+
+Automatically created for optimal performance:
+- Composite index on `(taggable_type, taggable_id)`
+- Unique constraint on `(taggable_type, taggable_id)`
+- Index on `value` column
+
+---
+
+## Security
+
+### Built-in Security Features
+
+✅ **Input Validation** - Length limits, character whitelisting
+✅ **SQL Injection Prevention** - Parameterized queries, escaped wildcards
+✅ **XSS Prevention** - Output escaping in barcode generation
+✅ **Error Handling** - Secure error messages in production
+✅ **Rate Limiting** - Configurable via middleware
+✅ **CSRF Protection** - Laravel default protection
+
+### Security Best Practices
+
+```php
+// 1. Always validate inputs
+$validated = $request->validate([
+    'name' => 'required|string|max:255',
+]);
+$equipment = Equipment::create($validated);
+
+// 2. Use authentication middleware
+'routes' => [
+    'middleware' => ['api', 'auth:sanctum'],
+],
+
+// 3. Set APP_DEBUG=false in production
+APP_DEBUG=false
+
+// 4. Implement rate limiting
+Route::middleware(['throttle:60,1'])->group(function () {
+    // Tag routes
+});
+```
+
+**Full security policy available in [SECURITY.md](SECURITY.md)**
+
+---
+
+## Testing
+
+The package includes a comprehensive test suite:
+
+```bash
+# Run all tests
+composer test
+
+# Run unit tests
+composer test-unit
+
+# Run feature tests
+composer test-feature
+
+# Run with coverage
+composer test-coverage
+```
+
+### Test Coverage
+
+- ✅ Tag generation (all formats)
+- ✅ Race condition handling
+- ✅ Caching behavior
+- ✅ API endpoints
+- ✅ Barcode generation
+- ✅ Bulk operations
+- ✅ Event dispatching
+- ✅ Exception handling
+- ✅ N+1 query prevention
+
+**Target: 80%+ code coverage**
+
+---
+
+## Documentation
+
+### Available Documentation
+
+- **[README.md](README.md)** - This file (main documentation)
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and upgrade guides
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
+- **[SECURITY.md](SECURITY.md)** - Security policy and best practices
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** - Community standards
+- **[docs/openapi.yaml](docs/openapi.yaml)** - OpenAPI 3.0 specification
+
+### Quick Links
+
+- 📖 [Installation Guide](#installation)
+- 🚀 [Quick Start](#quick-start)
+- 🔧 [Configuration](#configuration)
+- 💻 [Usage Examples](#usage)
+- 🎯 [API Reference](docs/openapi.yaml)
+- 🐛 [Report Issues](https://github.com/MasumNishat/laravel-tagging/issues)
+
+### Interactive API Documentation
+
+View interactive API docs with Swagger:
+
+```bash
+docker run -p 8080:8080 -e SWAGGER_JSON=/docs/openapi.yaml \
+  -v $(pwd)/docs:/docs swaggerapi/swagger-ui
+```
+
+Access at `http://localhost:8080`
+
+---
+
+## Changelog
+
+All notable changes are documented in [CHANGELOG.md](CHANGELOG.md).
+
+### Latest Version
+
+**Version 1.1.0** - Current Development
+
+**Added:**
+- Events system (TagCreated, TagUpdated, TagDeleted, TagGenerationFailed)
+- Bulk operations (regenerate, delete)
+- Custom exception classes
+- Caching system for TagConfig lookups
+- Race condition protection with pessimistic locking
+- Comprehensive test suite
+- OpenAPI 3.0 specification
+
+**Fixed:**
+- Race conditions in sequential tag generation
+- N+1 query problems
+- Missing database constraints
+- SQL injection vulnerabilities in search
+
+**See [CHANGELOG.md](CHANGELOG.md) for complete history**
+
+---
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+### Quick Contribution Guide
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Run tests (`composer test`)
+5. Commit changes (`git commit -m 'Add amazing feature'`)
+6. Push to branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/MasumNishat/laravel-tagging.git
+cd laravel-tagging
+
+# Install dependencies
+composer install
+
+# Run tests
+composer test
+```
+
+### Code of Conduct
+
+This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+---
 
 ## Credits
 
-- Masum
-- All Contributors
+### Author
+
+- **Masum Nishat** - [GitHub](https://github.com/MasumNishat)
+
+### Dependencies
+
+- [picqer/php-barcode-generator](https://github.com/picqer/php-barcode-generator) - Barcode generation
+- [Laravel Framework](https://laravel.com) - The framework we build upon
+
+### Contributors
+
+Thank you to all contributors who have helped make this package better!
+
+---
+
+## License
+
+This package is open-sourced software licensed under the [MIT License](LICENSE).
+
+---
 
 ## Support
 
-For issues, questions, or contributions, please visit the GitHub repository.
+- 🐛 **Bug Reports:** [GitHub Issues](https://github.com/MasumNishat/laravel-tagging/issues)
+- 💬 **Questions:** [GitHub Discussions](https://github.com/MasumNishat/laravel-tagging/discussions)
+- 📧 **Security Issues:** See [SECURITY.md](SECURITY.md)
+
+---
+
+<p align="center">
+  <strong>Made with ❤️ for the Laravel community</strong>
+</p>
+
+<p align="center">
+  If this package helped you, please consider giving it a ⭐ on <a href="https://github.com/MasumNishat/laravel-tagging">GitHub</a>!
+</p>

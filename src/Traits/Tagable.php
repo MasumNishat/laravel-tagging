@@ -4,8 +4,15 @@ namespace Masum\Tagging\Traits;
 
 use Masum\Tagging\Models\Tag;
 use Masum\Tagging\Models\TagConfig;
+use Masum\Tagging\Events\TagCreated;
+use Masum\Tagging\Events\TagUpdated;
+use Masum\Tagging\Events\TagDeleted;
+use Masum\Tagging\Events\TagGenerationFailed;
+use Masum\Tagging\Exceptions\TagGenerationException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 trait Tagable
 {
@@ -28,18 +35,52 @@ trait Tagable
                 ->first();
 
             if (!$existingTag) {
-                // Create tag relationship after model is saved and has an ID
-                Tag::create([
-                    'taggable_type' => get_class($model),
-                    'taggable_id' => $model->id,
-                    'value' => $model->generateNextTag()
-                ]);
+                try {
+                    $tagValue = $model->generateNextTag();
+                    $tagConfig = $model->tag_config;
+
+                    // Create tag relationship after model is saved and has an ID
+                    $tag = Tag::create([
+                        'taggable_type' => get_class($model),
+                        'taggable_id' => $model->id,
+                        'value' => $tagValue
+                    ]);
+
+                    // Dispatch TagCreated event
+                    event(new TagCreated($tag, $model, $tagConfig));
+                } catch (\Exception $e) {
+                    Log::error('Tag generation failed', [
+                        'model' => get_class($model),
+                        'id' => $model->id,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Dispatch TagGenerationFailed event
+                    event(new TagGenerationFailed($model, $e, null));
+
+                    // Re-throw if not in production
+                    if (config('app.debug')) {
+                        throw $e;
+                    }
+                }
             }
         });
 
         // Automatically delete tags when model is deleted
         static::deleting(function ($model) {
-            $model->tag()->delete();
+            $tag = $model->tag()->first();
+
+            if ($tag) {
+                $tagValue = $tag->value;
+                $tag->delete();
+
+                // Dispatch TagDeleted event
+                event(new TagDeleted(
+                    $tagValue,
+                    get_class($model),
+                    $model->id
+                ));
+            }
         });
     }
 
@@ -53,24 +94,46 @@ trait Tagable
 
     /**
      * Get the tag value as an attribute.
+     *
+     * PERFORMANCE: This method checks if the relationship is already loaded
+     * to avoid N+1 queries. Use eager loading for best performance:
+     * Model::with('tag')->get()
      */
     public function getTagAttribute(): ?string
     {
+        // Check if relationship is already loaded (prevents N+1 queries)
+        if ($this->relationLoaded('tag')) {
+            return $this->getRelation('tag')?->value;
+        }
+
+        // Warn in debug mode about missing eager loading
+        if (config('app.debug') && config('tagging.performance.debug_n_plus_one', true)) {
+            Log::warning('Tag relationship not eager loaded - potential N+1 query', [
+                'model' => static::class,
+                'id' => $this->id ?? 'unsaved',
+                'tip' => 'Use Model::with("tag")->get() for better performance'
+            ]);
+        }
+
+        // Fall back to querying (not optimal)
         return $this->tag()->first()?->value;
     }
 
     /**
      * Get the related TagConfig model as an attribute.
+     *
+     * PERFORMANCE: Uses caching by default to avoid repeated database queries.
      */
     public function getTagConfigAttribute(): ?TagConfig
     {
-        $tagConfig = TagConfig::where('model', get_class($this))->first();
-
-        return $tagConfig ?: $this->tagConfig()->getResults();
+        return TagConfig::forModel(get_class($this));
     }
 
     /**
      * Define the TagConfig relationship.
+     *
+     * Note: This is kept for compatibility but not a true BelongsTo relationship.
+     * Use the tag_config attribute accessor instead.
      */
     public function tagConfig(): BelongsTo
     {
@@ -133,12 +196,30 @@ trait Tagable
     public function setTagAttribute($value): void
     {
         if ($value) {
-            $this->tag()->updateOrCreate(
+            $existingTag = $this->tag()->first();
+            $oldValue = $existingTag?->value;
+
+            $tag = $this->tag()->updateOrCreate(
                 ['taggable_type' => get_class($this), 'taggable_id' => $this->id],
                 ['value' => $value]
             );
+
+            // Dispatch TagUpdated event if value changed
+            if ($oldValue && $oldValue !== $value) {
+                event(new TagUpdated($tag, $this, $oldValue));
+            } elseif (!$oldValue) {
+                // If no old value, this is a creation
+                event(new TagCreated($tag, $this, $this->tag_config));
+            }
         } else {
-            $this->tag()->delete();
+            $tag = $this->tag()->first();
+            if ($tag) {
+                $tagValue = $tag->value;
+                $tag->delete();
+
+                // Dispatch TagDeleted event
+                event(new TagDeleted($tagValue, get_class($this), $this->id));
+            }
         }
     }
 
@@ -152,16 +233,13 @@ trait Tagable
         }
 
         $tagConfig = $this->tag_config;
-        $oldTag = Tag::where('taggable_type', get_class($this))
-            ->latest()
-            ->first()?->value;
 
         if ($tagConfig && $tagConfig->number_format === 'sequential') {
-            return $this->generateSequentialTag($tagConfig, $oldTag);
+            return $this->generateSequentialTag($tagConfig);
         } elseif ($tagConfig && $tagConfig->number_format === 'random') {
             return $this->generateRandomTag($tagConfig);
         } elseif ($tagConfig && $tagConfig->number_format === 'branch_based') {
-            return $this->generateBranchBasedTag($tagConfig, $oldTag);
+            return $this->generateBranchBasedTag($tagConfig);
         }
 
         // Fallback if no tagConfig configuration found
@@ -169,33 +247,63 @@ trait Tagable
     }
 
     /**
-     * Generate a sequential tag.
+     * Generate a sequential tag with race condition protection.
+     *
+     * Uses database-level pessimistic locking and atomic counter increments
+     * to prevent duplicate tags in high-concurrency scenarios.
      */
-    protected function generateSequentialTag(TagConfig $tagConfig, ?string $oldTag): string
+    protected function generateSequentialTag(TagConfig $tagConfig): string
     {
-        // Get all existing tags for this model type
-        $allTags = Tag::where('taggable_type', get_class($this))
-            ->pluck('value')
-            ->toArray();
+        $maxRetries = config('tagging.performance.max_retries', 3);
+        $attempt = 0;
 
-        // Extract all numbers from existing tags
-        $existingNumbers = [];
-        foreach ($allTags as $tagValue) {
-            $parts = explode($tagConfig->separator, $tagValue);
-            if (isset($parts[1])) {
-                $existingNumbers[] = (int) $parts[1];
+        while ($attempt < $maxRetries) {
+            try {
+                return DB::transaction(function () use ($tagConfig) {
+                    // Lock the config row to prevent concurrent tag generation
+                    $config = TagConfig::where('id', $tagConfig->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$config) {
+                        throw new \RuntimeException('Tag configuration not found');
+                    }
+
+                    // Atomic increment of the counter
+                    $config->increment('current_number');
+                    $nextNumber = $config->current_number;
+
+                    // Use configured padding length
+                    $paddingLength = $config->padding_length ?? 3;
+
+                    return "{$config->prefix}{$config->separator}" . str_pad(
+                        $nextNumber,
+                        $paddingLength,
+                        '0',
+                        STR_PAD_LEFT
+                    );
+                });
+            } catch (\Exception $e) {
+                $attempt++;
+
+                if ($attempt >= $maxRetries) {
+                    Log::error('Failed to generate sequential tag after retries', [
+                        'model' => static::class,
+                        'config_id' => $tagConfig->id,
+                        'attempts' => $attempt,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Fall back to timestamp-based tag
+                    return $this->generateFallbackTag();
+                }
+
+                // Exponential backoff: wait 10ms * 2^attempt
+                usleep(10000 * pow(2, $attempt));
             }
         }
 
-        // Find the maximum number and add 1
-        $nextNumber = empty($existingNumbers) ? 1 : max($existingNumbers) + 1;
-
-        return "{$tagConfig->prefix}{$tagConfig->separator}" . str_pad(
-            $nextNumber,
-            3,
-            '0',
-            STR_PAD_LEFT
-        );
+        return $this->generateFallbackTag();
     }
 
     /**
@@ -207,36 +315,69 @@ trait Tagable
     }
 
     /**
-     * Generate a branch-based tag.
+     * Generate a branch-based tag with race condition protection.
+     *
+     * Similar to sequential tags but scoped by branch_id.
      */
-    protected function generateBranchBasedTag(TagConfig $tagConfig, ?string $oldTag): string
+    protected function generateBranchBasedTag(TagConfig $tagConfig): string
     {
         $branchId = $this->branch_id ?? 'null';
+        $maxRetries = config('tagging.performance.max_retries', 3);
+        $attempt = 0;
 
-        // Get all existing tags for this model type and branch
-        $allTags = Tag::where('taggable_type', get_class($this))
-            ->pluck('value')
-            ->toArray();
+        while ($attempt < $maxRetries) {
+            try {
+                return DB::transaction(function () use ($tagConfig, $branchId) {
+                    // Lock the config row
+                    $config = TagConfig::where('id', $tagConfig->id)
+                        ->lockForUpdate()
+                        ->first();
 
-        // Extract all numbers from existing tags for this branch
-        $existingNumbers = [];
-        foreach ($allTags as $tagValue) {
-            $parts = explode($tagConfig->separator, $tagValue);
-            // Check if this tag is for the same branch
-            if (isset($parts[1]) && isset($parts[2]) && $parts[2] == $branchId) {
-                $existingNumbers[] = (int) $parts[1];
+                    if (!$config) {
+                        throw new \RuntimeException('Tag configuration not found');
+                    }
+
+                    // For branch-based, we need to find the max for this specific branch
+                    // since different branches can have the same sequence number
+                    $maxNumber = Tag::where('taggable_type', get_class($this))
+                        ->where('value', 'LIKE', "{$config->prefix}{$config->separator}%{$config->separator}{$branchId}")
+                        ->get()
+                        ->map(function ($tag) use ($config) {
+                            $parts = explode($config->separator, $tag->value);
+                            return isset($parts[1]) ? (int) $parts[1] : 0;
+                        })
+                        ->max() ?? 0;
+
+                    $nextNumber = $maxNumber + 1;
+                    $paddingLength = $config->padding_length ?? 3;
+
+                    return "{$config->prefix}{$config->separator}" . str_pad(
+                        $nextNumber,
+                        $paddingLength,
+                        '0',
+                        STR_PAD_LEFT
+                    ) . "{$config->separator}{$branchId}";
+                });
+            } catch (\Exception $e) {
+                $attempt++;
+
+                if ($attempt >= $maxRetries) {
+                    Log::error('Failed to generate branch-based tag after retries', [
+                        'model' => static::class,
+                        'config_id' => $tagConfig->id,
+                        'branch_id' => $branchId,
+                        'attempts' => $attempt,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    return $this->generateFallbackTag();
+                }
+
+                usleep(10000 * pow(2, $attempt));
             }
         }
 
-        // Find the maximum number and add 1
-        $nextNumber = empty($existingNumbers) ? 1 : max($existingNumbers) + 1;
-
-        return "{$tagConfig->prefix}{$tagConfig->separator}" . str_pad(
-            $nextNumber,
-            3,
-            '0',
-            STR_PAD_LEFT
-        ) . "{$tagConfig->separator}{$branchId}";
+        return $this->generateFallbackTag();
     }
 
     /**
