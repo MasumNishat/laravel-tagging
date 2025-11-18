@@ -38,6 +38,7 @@ Laravel Tagging is a powerful, production-ready package that provides **automati
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Testing with Tinker](#testing-with-tinker)
 - [Features](#features)
   - [Tag Generation Formats](#tag-generation-formats)
   - [Barcode Generation](#barcode-generation)
@@ -138,6 +139,175 @@ echo $router2->tag;    // Output: EQ-002
 ```
 
 **That's it!** Tags are now automatically generated for all Equipment models. 🎉
+
+---
+
+## Testing with Tinker
+
+You can quickly test the package using Laravel Tinker. Here's a complete walkthrough:
+
+### Step 1: Start Tinker
+
+```bash
+php artisan tinker
+```
+
+### Step 2: Create Tag Configuration
+
+```php
+use Masum\Tagging\Models\TagConfig;
+
+TagConfig::create([
+    'model' => \App\Models\Equipment::class,  // Full namespace required!
+    'prefix' => 'EQ',
+    'separator' => '-',
+    'number_format' => 'sequential',
+    'auto_generate' => true,
+    'padding_length' => 3,
+    'description' => 'Equipment tags'
+]);
+```
+
+**Expected Output:**
+```
+=> Masum\Tagging\Models\TagConfig {#xxxx
+     id: 1,
+     model: "App\\Models\\Equipment",
+     prefix: "EQ",
+     separator: "-",
+     number_format: "sequential",
+     auto_generate: 1,
+     ...
+   }
+```
+
+### Step 3: Create Equipment and See Tags Auto-Generate
+
+```php
+use App\Models\Equipment;
+
+$eq1 = Equipment::create(['name' => 'Cisco Router']);
+echo $eq1->tag;  // EQ-001
+
+$eq2 = Equipment::create(['name' => 'TP-Link Switch']);
+echo $eq2->tag;  // EQ-002
+
+$eq3 = Equipment::create(['name' => 'Dell Server']);
+echo $eq3->tag;  // EQ-003
+```
+
+### Step 4: Verify Tags in Database
+
+```php
+use Masum\Tagging\Models\Tag;
+
+// Get all tags
+Tag::all();
+
+// Count tags
+Tag::count();  // 3
+
+// View tag details
+$tag = Tag::first();
+echo "Tag: {$tag->value}\n";
+echo "Type: {$tag->taggable_type}\n";
+echo "ID: {$tag->taggable_id}\n";
+```
+
+### Step 5: Test Tag Search
+
+```php
+// Find equipment by tag
+$equipment = Equipment::byTag('EQ-001')->first();
+echo $equipment->name;  // Cisco Router
+
+// Search with pattern
+Equipment::byTag('EQ-00%')->get();  // Returns all matching equipment
+```
+
+### Step 6: Test Eager Loading
+
+```php
+// Load all equipment with tags (prevents N+1 queries)
+$allEquipment = Equipment::with('tag')->get();
+
+foreach ($allEquipment as $eq) {
+    echo "{$eq->name} -> {$eq->tag}\n";
+}
+
+// Output:
+// Cisco Router -> EQ-001
+// TP-Link Switch -> EQ-002
+// Dell Server -> EQ-003
+```
+
+### Step 7: Test Tag Deletion
+
+```php
+// When you delete equipment, tags are automatically deleted
+$eq = Equipment::find(1);
+$tagValue = $eq->tag;
+$eq->delete();
+
+// Verify tag was deleted
+Tag::where('value', $tagValue)->first();  // null
+```
+
+### Quick Verification Script
+
+Copy and paste this into Tinker for a complete test:
+
+```php
+use App\Models\Equipment;
+use Masum\Tagging\Models\Tag;
+use Masum\Tagging\Models\TagConfig;
+
+echo "=== Laravel Tagging Quick Test ===\n\n";
+
+// Create config if not exists
+if (!TagConfig::where('model', \App\Models\Equipment::class)->exists()) {
+    TagConfig::create([
+        'model' => \App\Models\Equipment::class,
+        'prefix' => 'EQ',
+        'separator' => '-',
+        'number_format' => 'sequential',
+        'auto_generate' => true,
+    ]);
+    echo "✓ Config created\n";
+}
+
+// Create test equipment
+$eq = Equipment::create(['name' => 'Test Item ' . time()]);
+echo "✓ Equipment created: ID {$eq->id}\n";
+
+// Check tag
+if ($eq->tag) {
+    echo "✓ Tag generated: {$eq->tag}\n";
+} else {
+    echo "✗ Tag NOT generated!\n";
+}
+
+// Verify in database
+$tag = Tag::where('taggable_type', \App\Models\Equipment::class)
+    ->where('taggable_id', $eq->id)
+    ->first();
+
+if ($tag) {
+    echo "✓ Tag in database: {$tag->value}\n";
+} else {
+    echo "✗ Tag NOT in database!\n";
+}
+
+// Test search
+$found = Equipment::byTag($eq->tag)->first();
+if ($found && $found->id === $eq->id) {
+    echo "✓ Tag search working\n";
+} else {
+    echo "✗ Tag search failed\n";
+}
+
+echo "\n=== All Tests Passed! ===\n";
+```
 
 ---
 

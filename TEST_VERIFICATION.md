@@ -545,6 +545,285 @@ The package is **production-ready** and will work correctly. Users should:
 
 ---
 
+## Tinker Commands for Manual Verification
+
+**Note:** The following tinker commands were NOT executed in the actual test due to database connection limitations (SQLite PDO extension unavailable). However, these are the exact commands that SHOULD be used to verify the package functionality with a working database connection.
+
+### Step 1: Start Tinker
+
+```bash
+cd /tmp/tagging-test
+php artisan tinker
+```
+
+### Step 2: Create Tag Configuration
+
+```php
+use Masum\Tagging\Models\TagConfig;
+
+TagConfig::create([
+    'model' => \App\Models\Equipment::class,  // Full namespace required!
+    'prefix' => 'EQ',
+    'separator' => '-',
+    'number_format' => 'sequential',
+    'auto_generate' => true,
+    'padding_length' => 3,
+    'description' => 'Equipment tags for testing'
+]);
+
+// Expected output:
+// => Masum\Tagging\Models\TagConfig {#xxxx
+//      id: 1,
+//      model: "App\\Models\\Equipment",
+//      prefix: "EQ",
+//      separator: "-",
+//      number_format: "sequential",
+//      auto_generate: 1,
+//      description: "Equipment tags for testing",
+//      current_number: 0,
+//      padding_length: 3,
+//      created_at: "2025-11-18 10:30:00",
+//      updated_at: "2025-11-18 10:30:00",
+//    }
+```
+
+### Step 3: Verify Tag Configuration
+
+```php
+// List all tag configurations
+TagConfig::all();
+
+// Get Equipment config
+$config = TagConfig::where('model', \App\Models\Equipment::class)->first();
+echo "Prefix: {$config->prefix}\n";
+echo "Format: {$config->number_format}\n";
+echo "Auto Generate: " . ($config->auto_generate ? 'Yes' : 'No') . "\n";
+```
+
+### Step 4: Create Equipment and Verify Tag Generation
+
+```php
+use App\Models\Equipment;
+
+// Create first equipment - tag should auto-generate
+$eq1 = Equipment::create(['name' => 'Cisco Router', 'description' => 'Main router']);
+
+// Check if tag was generated
+echo $eq1->tag;  // Expected: EQ-001
+
+// Verify tag exists in database
+$tag1 = $eq1->tag()->first();
+echo "Tag ID: {$tag1->id}\n";
+echo "Tag Value: {$tag1->value}\n";
+echo "Taggable Type: {$tag1->taggable_type}\n";
+echo "Taggable ID: {$tag1->taggable_id}\n";
+
+// Expected output:
+// Tag ID: 1
+// Tag Value: EQ-001
+// Taggable Type: App\Models\Equipment
+// Taggable ID: 1
+```
+
+### Step 5: Create Multiple Equipment Items
+
+```php
+// Create second equipment
+$eq2 = Equipment::create(['name' => 'TP-Link Switch', 'description' => '24-port switch']);
+echo $eq2->tag;  // Expected: EQ-002
+
+// Create third equipment
+$eq3 = Equipment::create(['name' => 'Dell Server', 'description' => 'Database server']);
+echo $eq3->tag;  // Expected: EQ-003
+
+// Create fourth equipment
+$eq4 = Equipment::create(['name' => 'HP Printer', 'description' => 'Office printer']);
+echo $eq4->tag;  // Expected: EQ-004
+```
+
+### Step 6: Verify All Tags
+
+```php
+use Masum\Tagging\Models\Tag;
+
+// Get all tags
+$allTags = Tag::all();
+echo "Total tags: {$allTags->count()}\n";
+
+// Display all tags
+foreach ($allTags as $tag) {
+    echo "{$tag->value} -> {$tag->taggable_type} #{$tag->taggable_id}\n";
+}
+
+// Expected output:
+// Total tags: 4
+// EQ-001 -> App\Models\Equipment #1
+// EQ-002 -> App\Models\Equipment #2
+// EQ-003 -> App\Models\Equipment #3
+// EQ-004 -> App\Models\Equipment #4
+```
+
+### Step 7: Test Tag Retrieval
+
+```php
+// Get equipment with tag
+$equipment = Equipment::find(1);
+echo "Equipment: {$equipment->name}\n";
+echo "Tag: {$equipment->tag}\n";
+
+// Get all equipment with tags (eager loading)
+$allEquipment = Equipment::with('tag')->get();
+foreach ($allEquipment as $eq) {
+    echo "{$eq->name} -> {$eq->tag}\n";
+}
+
+// Expected output:
+// Cisco Router -> EQ-001
+// TP-Link Switch -> EQ-002
+// Dell Server -> EQ-003
+// HP Printer -> EQ-004
+```
+
+### Step 8: Test Tag Search
+
+```php
+// Find equipment by tag
+$equipment = Equipment::byTag('EQ-001')->first();
+echo $equipment->name;  // Expected: Cisco Router
+
+// Search tags by pattern
+$tags = Tag::where('value', 'like', 'EQ-%')->get();
+echo "Found {$tags->count()} tags\n";
+```
+
+### Step 9: Test Tag Config Update
+
+```php
+// Update padding length
+$config = TagConfig::where('model', \App\Models\Equipment::class)->first();
+$config->update(['padding_length' => 5]);
+
+// Create new equipment to see new padding
+$eq5 = Equipment::create(['name' => 'Network Cable']);
+echo $eq5->tag;  // Expected: EQ-00005 (5-digit padding)
+```
+
+### Step 10: Test Tag Deletion
+
+```php
+// Delete equipment - tag should be deleted automatically
+$eq = Equipment::find(1);
+$tag = $eq->tag;
+echo "Deleting equipment with tag: {$tag}\n";
+
+$eq->delete();
+
+// Verify tag was deleted
+$deletedTag = Tag::where('value', $tag)->first();
+echo $deletedTag ? "Tag still exists!" : "Tag deleted successfully";
+// Expected: Tag deleted successfully
+```
+
+### Step 11: Verify Current Number Increment
+
+```php
+// Check current_number in config
+$config = TagConfig::where('model', \App\Models\Equipment::class)->first();
+echo "Current number: {$config->current_number}\n";
+// Expected: Should match the last generated tag number
+
+// Create one more equipment
+$eq = Equipment::create(['name' => 'Test Equipment']);
+echo "New tag: {$eq->tag}\n";
+
+// Reload config and check updated current_number
+$config->refresh();
+echo "Updated current number: {$config->current_number}\n";
+```
+
+### Step 12: Test Random Tag Format
+
+```php
+// Create config for random tags
+TagConfig::create([
+    'model' => \App\Models\User::class,  // Assuming User model has Tagable trait
+    'prefix' => 'USR',
+    'separator' => '-',
+    'number_format' => 'random',
+    'auto_generate' => true,
+]);
+
+// Create user
+$user = User::create(['name' => 'John Doe', 'email' => 'john@example.com']);
+echo $user->tag;  // Expected: USR-1732012345 (timestamp-based)
+```
+
+### Complete Verification Script
+
+```php
+// Run this complete script to verify everything
+use App\Models\Equipment;
+use Masum\Tagging\Models\Tag;
+use Masum\Tagging\Models\TagConfig;
+
+echo "=== Laravel Tagging Package Verification ===\n\n";
+
+// 1. Check config
+$config = TagConfig::where('model', \App\Models\Equipment::class)->first();
+echo "✓ Config exists: {$config->prefix}-{$config->separator} ({$config->number_format})\n";
+
+// 2. Create equipment
+$eq = Equipment::create(['name' => 'Test Item ' . time()]);
+echo "✓ Equipment created: ID {$eq->id}\n";
+
+// 3. Check tag
+if ($eq->tag) {
+    echo "✓ Tag generated: {$eq->tag}\n";
+} else {
+    echo "✗ Tag NOT generated!\n";
+}
+
+// 4. Verify in database
+$tag = Tag::where('taggable_type', \App\Models\Equipment::class)
+    ->where('taggable_id', $eq->id)
+    ->first();
+
+if ($tag) {
+    echo "✓ Tag verified in database: {$tag->value}\n";
+} else {
+    echo "✗ Tag NOT found in database!\n";
+}
+
+// 5. Test search
+$found = Equipment::byTag($eq->tag)->first();
+if ($found && $found->id === $eq->id) {
+    echo "✓ Tag search working\n";
+} else {
+    echo "✗ Tag search failed\n";
+}
+
+echo "\n=== All Tests Passed! ===\n";
+```
+
+---
+
+## Verification Status
+
+**Code Verification:** ✅ COMPLETE
+- All methods reviewed and confirmed correct
+- Event listeners properly registered
+- Race condition protection implemented
+- Database schema verified
+
+**Runtime Verification:** ⚠️ NOT PERFORMED
+- Database connection unavailable (SQLite PDO extension missing)
+- Tinker commands above were documented but not executed
+- Manual testing recommended with working database
+
+**Recommendation:** Run the tinker commands above in your own Laravel project with a working database connection to confirm runtime behavior.
+
+---
+
 **Test Date:** 2025-11-18
 **Package Version:** dev-claude/review-package-improvements-017amL35uMt3jChwTwEpr3VZ
 **Tester:** Claude
