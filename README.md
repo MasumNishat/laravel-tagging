@@ -53,6 +53,7 @@ Laravel Tagging is a powerful, production-ready package that provides **automati
 - [Security](#security)
 - [Testing](#testing)
 - [Documentation](#documentation)
+- [Troubleshooting](#troubleshooting)
 - [Changelog](#changelog)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -115,13 +116,15 @@ class Equipment extends Model
 use Masum\Tagging\Models\TagConfig;
 
 TagConfig::create([
-    'model' => Equipment::class,
+    'model' => \App\Models\Equipment::class,  // Full namespace required
     'prefix' => 'EQ',
     'separator' => '-',
     'number_format' => 'sequential',  // or 'random', 'branch_based'
     'auto_generate' => true,
 ]);
 ```
+
+**Important:** The `model` field requires the **fully qualified class name** (e.g., `\App\Models\Equipment::class` or `'App\\Models\\Equipment'`).
 
 ### 3. Create Models - Tags Generated Automatically!
 
@@ -403,7 +406,7 @@ $tag = Tag::where('value', 'EQ-001')->first();
 $equipment = $tag->taggable;
 
 // Get all tags for a model type
-$equipmentTags = Tag::where('taggable_type', Equipment::class)->get();
+$equipmentTags = Tag::where('taggable_type', \App\Models\Equipment::class)->get();
 ```
 
 ### Advanced Features
@@ -557,10 +560,10 @@ Tag configurations are automatically cached:
 
 ```php
 // First call: queries database
-$config = TagConfig::forModel(Equipment::class);
+$config = TagConfig::forModel(\App\Models\Equipment::class);
 
 // Subsequent calls: uses cache (1 hour default)
-$config = TagConfig::forModel(Equipment::class);
+$config = TagConfig::forModel(\App\Models\Equipment::class);
 ```
 
 Cache is automatically invalidated on config updates.
@@ -693,6 +696,140 @@ docker run -p 8080:8080 -e SWAGGER_JSON=/docs/openapi.yaml \
 ```
 
 Access at `http://localhost:8080`
+
+---
+
+## Troubleshooting
+
+### Tags Not Generated Automatically
+
+If tags are not being generated when you create models, check the following:
+
+**1. Model Uses the Trait**
+```php
+use Masum\Tagging\Traits\Tagable;
+
+class Equipment extends Model
+{
+    use Tagable;  // ✅ Trait must be present
+
+    const TAGABLE = 'Equipment::Generic';  // ✅ Required constant
+}
+```
+
+**2. TagConfig Uses Full Namespace**
+
+❌ **Wrong:**
+```php
+TagConfig::create([
+    'model' => Equipment::class,  // Missing namespace!
+]);
+```
+
+✅ **Correct:**
+```php
+TagConfig::create([
+    'model' => \App\Models\Equipment::class,  // Full namespace required
+    // OR
+    'model' => 'App\\Models\\Equipment',  // String with escaped backslashes
+]);
+```
+
+**3. Migrations Are Run**
+
+Make sure you've published and run all migrations:
+```bash
+php artisan vendor:publish --tag=tagging-migrations
+php artisan migrate
+```
+
+This will create 3 migration files:
+- `create_tags_table.php`
+- `create_tag_configs_table.php`
+- `add_improvements_to_tagging_tables.php`
+
+**4. TagConfig Exists**
+
+Verify your tag configuration exists:
+```php
+$config = \Masum\Tagging\Models\TagConfig::where('model', \App\Models\Equipment::class)->first();
+
+if (!$config) {
+    echo "No configuration found!";
+}
+```
+
+**5. Check Logs**
+
+Enable debug mode and check logs for errors:
+```env
+APP_DEBUG=true
+```
+
+Tag generation errors are logged to `storage/logs/laravel.log`.
+
+### Common Issues
+
+**Issue: "No configuration found for model"**
+
+Solution: Create a TagConfig with the correct full namespace:
+```php
+\Masum\Tagging\Models\TagConfig::create([
+    'model' => \App\Models\Equipment::class,  // Must match exactly!
+    'prefix' => 'EQ',
+    'separator' => '-',
+    'number_format' => 'sequential',
+]);
+```
+
+**Issue: "Duplicate tag errors"**
+
+Solution: The improvements migration adds unique constraints. If you have existing duplicate tags:
+```php
+// Find duplicates
+$duplicates = \Masum\Tagging\Models\Tag::select('taggable_type', 'taggable_id')
+    ->groupBy('taggable_type', 'taggable_id')
+    ->havingRaw('COUNT(*) > 1')
+    ->get();
+
+// Delete duplicates (keeping the first)
+foreach ($duplicates as $dup) {
+    \Masum\Tagging\Models\Tag::where('taggable_type', $dup->taggable_type)
+        ->where('taggable_id', $dup->taggable_id)
+        ->orderBy('id')
+        ->skip(1)
+        ->delete();
+}
+```
+
+**Issue: "Tags are sequential but starting from wrong number"**
+
+Solution: Reset the counter in tag_configs:
+```php
+$config = \Masum\Tagging\Models\TagConfig::where('model', \App\Models\Equipment::class)->first();
+$config->update(['current_number' => 0]);  // Start from 1
+```
+
+**Issue: "N+1 query warnings in logs"**
+
+Solution: Use eager loading:
+```php
+// ❌ Bad
+$equipment = Equipment::all();
+
+// ✅ Good
+$equipment = Equipment::with('tag')->get();
+```
+
+### Debug Mode
+
+Enable verbose logging to troubleshoot issues:
+```env
+TAGGING_DEBUG_N_PLUS_ONE=true
+APP_DEBUG=true
+```
+
+Then check `storage/logs/laravel.log` for detailed error messages.
 
 ---
 
